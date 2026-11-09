@@ -1,0 +1,50 @@
+--- a/GPU/include/mesh_gpu.cuh
++++ b/GPU/include/mesh_gpu.cuh
+@@ -2468,7 +2468,13 @@ void MeshGPU::unzip_cg(const ot::Mesh* const pMesh,
+ 
+     assert(pMesh->getNumLocalMeshElements() ==
+            pMesh->getLocalBlockList().size());
++    // Default 7x7 matches p=6 (nx=7). DENDRO_UNZIP_TB88=1 → 8x8 (2 full warps;
++    // NCU: 49-thread blocks leave warp slots masked — A/B for hang-path).
+     dim3 tb = dim3(7, 7, 1);
++    if (const char* tb88 = std::getenv("DENDRO_UNZIP_TB88")) {
++        if (tb88[0] == '1' && tb88[1] == '\0') tb = dim3(8, 8, 1);
++    }
+     // DENDRO_UNZIP_SPLIT:
+     //   1 = single launch over active (nmap>0) element IDs
+     //   2 = dual hang/nh launches (same kernel; usually hang-majority)
+
+@@ -2533,6 +2539,36 @@ void MeshGPU::unzip_cg(const ot::Mesh* const pMesh,
+         __unzip_cg1__2<T, 6, 3><<<gb, tb, 0, s>>>(dptr_mesh, dptr_in, dptr_out,
+                                                     nullptr);
+     }
++
++    // Queue #5 baseline: DENDRO_UNZIP_K_BENCH=<K> re-launches stock unzip.
++    if (const char* kb = std::getenv("DENDRO_UNZIP_K_BENCH")) {
++        const int K = std::atoi(kb);
++        if (K > 1) {
++            dim3 gb = dim3(m_unzip_grid[0], 1, dof);
++            cudaEvent_t e0, e1;
++            cudaEventCreate(&e0);
++            cudaEventCreate(&e1);
++            cudaEventRecord(e0, s);
++            for (int k = 1; k < K; ++k) {
++                __unzip_cg1__2<T, 6, 3><<<gb, tb, 0, s>>>(
++                    dptr_mesh, dptr_in, dptr_out, nullptr);
++            }
++            cudaEventRecord(e1, s);
++            cudaEventSynchronize(e1);
++            float ms = 0.f;
++            cudaEventElapsedTime(&ms, e0, e1);
++            static int printed = 0;
++            if (printed < 3) {
++                printf("[unzip-k-bench] serial_extra K=%d launches=%d "
++                       "%.3fms (%.3fms/launch)\n",
++                       K, K - 1, ms, ms / (float)(K - 1));
++                printed++;
++            }
++            cudaEventDestroy(e0);
++            cudaEventDestroy(e1);
++        }
++    }
+ }

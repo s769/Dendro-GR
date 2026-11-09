@@ -8,12 +8,12 @@ source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
 LOG="${HOME}/Dendro-GR-notes/tier0/next_gpu_task.log"
 echo "host $(hostname) $(date -Is) next_gpu_task" | tee -a "${LOG}"
 
-# Queue #4: hang-path NCU occupancy on __unzip_cg1__2
-if [[ -x "${HOME}/Dendro-GR-notes/run_tier2_ncu_hang.sh" ]]; then
-  echo "==== queue#4 tier2_ncu_hang ====" | tee -a "${LOG}"
-  bash "${HOME}/Dendro-GR-notes/run_tier2_ncu_hang.sh" | tee -a "${LOG}"
-  echo TIER2_NCU_HANG_QUEUE_DONE | tee -a "${LOG}"
+# Queue #5 placeholder: frozen-mesh unzip reuse needs coding first on login.
+# When a runnable GPU probe exists, wire it here. For now report and exit 0
+# so watchers do not spin filler.
+if [[ -x "${HOME}/Dendro-GR-notes/run_tier2_frozen_unzip_probe.sh" ]]; then
+  echo "==== queue#5 frozen_unzip_probe ====" | tee -a "${LOG}"
+  bash "${HOME}/Dendro-GR-notes/run_tier2_frozen_unzip_probe.sh" | tee -a "${LOG}"
 else
-  echo "run_tier2_ncu_hang.sh missing" | tee -a "${LOG}"
-  exit 1
+  echo "queue#5: no GPU probe yet — code frozen-mesh unzip reuse on login" | tee -a "${LOG}"
 fi

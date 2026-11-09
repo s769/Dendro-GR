@@ -72,10 +72,37 @@ Longer confirm: K=1 → 3.924 vs K=4 → 4.409 (`TIME_END=1.0`). **Keep K=1.** R
 
 ## Next levers (ordered)
 
-1. Hang-path / occupancy (ncu on `__unzip_cg1__2` hang branch; tile/smem)
+1. Hang-path / occupancy — **NCU done** (c125-022, `tier0/tier2_ncu_hang.log`, `unzip_hang_occ.ncu-rep`)
 2. Frozen-mesh ensemble: unzip geometry once (Tier 1.3 synergy) — only real multi-member win left on unzip
 3. Tier 2.1 staged RHS algebra (RHS is still 40%) — after NCU
 4. ~~async_k / hang-nh split / batch-sync~~ **closed no-go / neutral**
+
+### NCU on `__unzip_cg1__2` (q8, 1GPU, SPLIT=2, short)
+
+Launch: `(N_ele,1,24)×(7,7,1)`, regs/thread=64, static smem≈9.0 KB.
+
+| metric | value | note |
+|--------|------:|------|
+| Theoretical occupancy | 50% | block-limit by regs (16 blocks/SM) |
+| Achieved occupancy | ~38% | |
+| Active / eligible warps/sched | 6.3 / **0.75** | latency-bound |
+| Est. speedup: uncoalesced global loads | **~50–64%** | gather via `e2n_cg` |
+| Est. speedup: uncoalesced global stores | ~28–36% | scatter to unzip |
+| Est. speedup: 49-thread block (partial warps) | ~23% | try `DENDRO_UNZIP_TB88=1` → 8×8 |
+| Long-scoreboard stall | ~29% | follows uncoalesced gathers |
+
+**Verdict:** occupancy is secondary; **uncoalesced CG gather/scatter** is the hang-path wall. 8×8 CTA A/B is a cheap check; real win likely needs coalesced staging or frozen-mesh unzip reuse (#5).
+
+### `DENDRO_UNZIP_TB88` A/B (q8/4GPU, `TIME_END=0.5`, c125-022)
+
+| mode | ETS (s) | vs 7×7 |
+|------|--------:|-------:|
+| tb77 (default) | **2.135** | — |
+| tb88 | 2.230 | **+4.4%** |
+
+**NO-GO.** Idle threads in 8×8 outweigh warp-mask theory. Keep 7×7. Patch stays behind env for experiments (`patches/dendrolib/unzip-tb88.patch`). Raw: `tier0/tier2_unzip_tb88_ab.log`.
+
+Hang-path single-kernel micro-opts exhausted for now → next: **frozen-mesh unzip geometry reuse** (queue #5).
 
 ### Longer confirm `TIME_END=1.0` (c125-022)
 
