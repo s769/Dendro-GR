@@ -88,3 +88,23 @@ Coarse: smooth O(eps^2) drift, +-2.5% over 1.5 decades -> clean plateau. Fine: +
 Coarse vs fine differ ~10% (discretization-level), same sign/magnitude. **Dual-res gate: PASS for C_HAM (loose, ~10%).**
 Caveats: one parameter, one observable (C_HAM L2 — a constraint norm, not the waveform), 16/31 samples. Waveform (psi4 phase) dual-res FD NOT yet done — that is the observable that matters for inference.
 **Decision (per handoff 6.4): do NOT build the full TLM now.** Existing TL gates stay as scaffolding. Re-open only if waveform-phase FD plateau (next) is poor.
+
+## 2026-11-09 Waveform FD (psi4_22, coarse q1, frozen mesh) — first result
+Setup: `run_tier15_waveform_fd.sh` (SKIP_FID replay), coarse `q1.smoke_cons` (maxdepth 11), GW radii [10,12,15,18,20,25], REMESH_TEST_FREQ=20,
+TEND=26, central FD in BH1.MASS about 0.4824, eps in {1e-3, 3e-3}. Fiducial + mesh record from `tier15_wave_coarse_T30_r3` (the T=30 fiducial
+CRASHED at the step-420 remesh: mesh explodes 3k -> 68k elements, then "invalid arguments"; likely wave-driven refinement near the GW shell, cause not proven;
+so all replays stop at T=26 < step 420). Raw: `tier0/wave_rep.log`. Analysis: `analyze_wave_fd.py`, `analyze_wave_multi.py`.
+
+Observable: complex dpsi4_22/dm over the full 0<=t<=26 window. eps-plateau = ||dz(1e-3)-dz(3e-3)|| / ||dz(1e-3)||:
+
+| radius | plateau (rel L2) | note |
+|-------:|-----------------:|------|
+| 10 | 3.8e-3 | |
+| 15 | 9.0e-3 | |
+| 25 | 3.4e-4 | |
+
+=> **complex psi4 derivative FD plateau is good (<1%) between eps 1e-3 and 3e-3 on this window.** Phase-only derivative is ill-conditioned where |psi4|->0 (e.g. r=15: -574 vs -194) — use the complex derivative / amplitude-weighted phase, not raw arg().
+CAVEATS: (1) this "q1 smoke" case is coarse and the window is dominated by an unphysical ~100x burst (C_HAM rises 1e-5 -> 6e-4 by t~25; |dz|/|z| ~ 50 at late times), not inspiral phase;
+(2) only 2 eps values here (eps 3e-4, 1e-2 replays on c106-031 were cut off by node expiry — partial data only, see below if appended); (3) coarse resolution only — fine-res waveform FD NOT done;
+(4) run-to-run noise: psi4 output differs ~1e-18 abs between identical serial runs (norm/extraction noise, evolution otherwise reproducible to print precision) — far below the FD signal.
+Decision stands: TLM not needed on this evidence; re-open if a well-resolved physical window shows a poor plateau.

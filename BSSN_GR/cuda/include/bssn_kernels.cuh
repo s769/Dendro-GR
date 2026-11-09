@@ -1803,7 +1803,10 @@ HOST_FUNC void bssnrhs2(DEVICE_REAL* const dptr_Fu,
 // bflag_sel: 0 = all blocks, 1 = interior only (m_bflag==0),
 //            2 = domain-boundary only (m_bflag!=0). Used by hybrid PT launch.
 template <int pw, int nx, int pencil_sz, int bflag_sel = 0>
-GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3(
+#ifndef BSSN_STOCK_MINB
+#define BSSN_STOCK_MINB 3
+#endif
+GLOBAL_FUNC __launch_bounds__(343, BSSN_STOCK_MINB) void eval_rhs3(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
     const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
     DEVICE_REAL ko_sigma) {
@@ -3625,7 +3628,7 @@ template <int pw, int nx, int pencil_sz>
 HOST_FUNC inline void bssnrhs3_stock_boundary(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
     BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
-    DEVICE_REAL ko_sigma);
+    DEVICE_REAL ko_sigma, cudaStream_t bdy_stream = 0);
 
 template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
 HOST_FUNC void bssnrhs3_f32(DEVICE_REAL* const dptr_Fu,
@@ -4207,7 +4210,7 @@ template <int pw, int nx, int pencil_sz>
 HOST_FUNC inline void bssnrhs3_stock_boundary(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
     BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
-    DEVICE_REAL ko_sigma) {
+    DEVICE_REAL ko_sigma, cudaStream_t bdy_stream) {
     dim3 tb = dim3(7, 7, 7);
     const int smem = 13 * 13 * 13 * 8 * 3;
     const char* compact_env = std::getenv("DENDRO_COMPACT_BDY");
@@ -4261,7 +4264,7 @@ HOST_FUNC inline void bssnrhs3_stock_boundary(
                              smem);
         cudaFuncSetCacheConfig(device::eval_rhs3<pw, nx, pencil_sz, 0>,
                                cudaFuncCachePreferShared);
-        eval_rhs3<pw, nx, pencil_sz, 0><<<gb, tb, smem>>>(
+        eval_rhs3<pw, nx, pencil_sz, 0><<<gb, tb, smem, bdy_stream>>>(
             dptr_Fu, dptr_u, launch_blk, launch_n, szpdof_uz, ko_sigma);
     } else {
         cudaFuncSetAttribute(device::eval_rhs3<pw, nx, pencil_sz, 2>,
@@ -4269,7 +4272,7 @@ HOST_FUNC inline void bssnrhs3_stock_boundary(
                              smem);
         cudaFuncSetCacheConfig(device::eval_rhs3<pw, nx, pencil_sz, 2>,
                                cudaFuncCachePreferShared);
-        eval_rhs3<pw, nx, pencil_sz, 2><<<gb, tb, smem>>>(
+        eval_rhs3<pw, nx, pencil_sz, 2><<<gb, tb, smem, bdy_stream>>>(
             dptr_Fu, dptr_u, dptr_blk, nblocks, szpdof_uz, ko_sigma);
     }
 }
@@ -4314,17 +4317,47 @@ HOST_FUNC void bssnrhs3_pt_async(DEVICE_REAL* const dptr_Fu,
     dim3 tb = dim3(7, 7, 7);
     const int smem = 13 * 13 * 13 * 8;
     const DEVICE_UINT K_share = kshare ? K : 0;
+    // DENDRO_BDY_STREAM=1: launch the (few-CTA, latency-bound) stock boundary
+    // kernel FIRST on a side stream so it overlaps the interior kernel.
+    // Kernels write disjoint blocks (interior: m_bflag==0, boundary: !=0), so
+    // results are bit-identical to the serial order.
+    static const bool bdy_overlap = []() {
+        // DEFAULT ON (opt out with DENDRO_BDY_STREAM=0): measured -11% ETS,
+        // GW output byte-identical (tier0/ab_bdystream.log).
+        const char* e = std::getenv("DENDRO_BDY_STREAM");
+        return !(e && e[0] == '0');
+    }();
+    static cudaStream_t s_bdy = nullptr;
+    static cudaEvent_t ev_in  = nullptr;
+    if (bdy_overlap && !s_bdy) {
+        cudaStreamCreateWithFlags(&s_bdy, cudaStreamNonBlocking);
+        cudaEventCreateWithFlags(&ev_in, cudaEventDisableTiming);
+    }
+    if (bdy_overlap) {  // order side stream after all prior default-stream work
+        cudaEventRecord(ev_in, 0);
+        cudaStreamWaitEvent(s_bdy, ev_in, 0);
+    }
     cudaFuncSetAttribute(device::eval_rhs3_pt_async<pw, nx, pencil_sz>,
                          cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
     cudaFuncSetCacheConfig(device::eval_rhs3_pt_async<pw, nx, pencil_sz>,
                            cudaFuncCachePreferL1);
+    if (bdy_overlap) {
+        for (DEVICE_UINT k = 0; k < K; ++k) {
+            const DEVICE_UINT stride = bssn::BSSN_NUM_VARS * szpdof_uz;
+            bssnrhs3_stock_boundary<pw, nx, pencil_sz>(
+                dptr_Fu + k * stride, dptr_u + k * stride, dptr_blk, nblocks,
+                szpdof_uz, ko_sigma, s_bdy);
+        }
+    }
     eval_rhs3_pt_async<pw, nx, pencil_sz><<<gb, tb, smem>>>(
         dptr_Fu, dptr_u, dptr_blk, nblocks, szpdof_uz, ko_sigma, K_share);
-    for (DEVICE_UINT k = 0; k < K; ++k) {
-        const DEVICE_UINT stride = bssn::BSSN_NUM_VARS * szpdof_uz;
-        bssnrhs3_stock_boundary<pw, nx, pencil_sz>(
-            dptr_Fu + k * stride, dptr_u + k * stride, dptr_blk, nblocks,
-            szpdof_uz, ko_sigma);
+    if (!bdy_overlap) {
+        for (DEVICE_UINT k = 0; k < K; ++k) {
+            const DEVICE_UINT stride = bssn::BSSN_NUM_VARS * szpdof_uz;
+            bssnrhs3_stock_boundary<pw, nx, pencil_sz>(
+                dptr_Fu + k * stride, dptr_u + k * stride, dptr_blk, nblocks,
+                szpdof_uz, ko_sigma);
+        }
     }
     cudaDeviceSynchronize();
 }

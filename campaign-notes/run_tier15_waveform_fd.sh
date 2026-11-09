@@ -36,7 +36,7 @@ runit() { # tag gpu mode
     echo "$1 gpu$2 wall=$(( $(date +%s)-s ))s $(grep -E 'ETS time' run.log | tail -1)" ) 
 }
 echo "RES=$RES TEND=$TEND RFREQ=$RFREQ RADII=$RADII EPSS=$EPSS $(date -Is) $(hostname)"
-setup fid "$M0"; runit fid 0 record; [[ -f "${OUT}/fid/dat/bssn_profile_GW_l2_m2.dat" ]] || { echo FID_FAILED; exit 1; }
+if [[ -z "${SKIP_FID:-}" ]]; then setup fid "$M0"; runit fid 0 record; fi; [[ -f "${OUT}/fid/dat/bssn_profile_GW_l2_m2.dat" ]] || { echo FID_FAILED; exit 1; }
 i=0
 for e in $EPSS; do
   mp=$(python3 -c "print($M0+$e)"); mm=$(python3 -c "print($M0-$e)")
