@@ -13,6 +13,8 @@ Do **not** run filler ETS loops. When a GPU task finishes, start the next item t
 | 7 | Coalesced hang gather (sort-by-cg) | yes | **NO-GO** (+78% ETS); park / try CG-scatter later |
 | 8 | Tier 3.1: radiative BC TL linearization | yes (short) | **done** (`tl_gauge_radbc_test` FACE+INTERIOR PASS) |
 | 9 | Tier 3.1: expand TL to shift (β⁰) interior | yes (short) | **done** (`tl_shift_beta_test` PASS) |
-| 10 | Tier 3.1: Γ-driver B⁰ TL (couples to α,β) | yes (short) | **next** |
+| 10 | Tier 3.1: Γ-driver B⁰ TL (δB⁰ + δβ⁰) | yes (short) | **done** (`tl_Bdriver_test` PASS) |
+| 11 | Tier 3.1: SymPy TL codegen scaffold (gauge→χ) | no | **next** |
+| 12 | Tier 3.2: dual-res Richardson pair at q=4 (frozen mesh) | yes | queued |
 
 Automation: when a new idev goes `R`, run the **next queued GPU task**, not a keep-alive cycle.
