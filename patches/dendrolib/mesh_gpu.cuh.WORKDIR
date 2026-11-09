@@ -10,7 +10,9 @@
  */
 
 #pragma once
+#include <algorithm>
 #include <cstdlib>
+#include <vector>
 #include "asyncExchangeContex.h"
 #include "device.h"
 #include "mesh_gpu.h"
@@ -1525,6 +1527,33 @@ GLOBAL_FUNC __launch_bounds__(64) void __unzip_cg__2(
     return;
 }
 
+/** One-shot: unique CG ids touched by hang gather per element (queue #7). */
+template <DEVICE_UINT p>
+GLOBAL_FUNC void __unzip_gather_unique_stats(
+    const MeshGPU* const dptr_mesh, const DEVICE_UINT* ele_ids,
+    DEVICE_UINT* unique_counts) {
+    const DEVICE_UINT ele =
+        (ele_ids != nullptr) ? ele_ids[GPUDevice::block_id_x()]
+                             : static_cast<DEVICE_UINT>(GPUDevice::block_id_x());
+    if (GPUDevice::thread_id_x() != 0 || GPUDevice::thread_id_y() != 0) return;
+    const DEVICE_UINT nx  = p + 1;
+    const DEVICE_UINT nPe = nx * nx * nx;
+    const DEVICE_UINT* const e2n_cg = dptr_mesh->m_e2n_cg;
+    DEVICE_UINT uniq = 0;
+    for (DEVICE_UINT i = 0; i < nPe; ++i) {
+        const DEVICE_UINT id = e2n_cg[ele * nPe + i];
+        DEVICE_BOOL seen     = false;
+        for (DEVICE_UINT j = 0; j < i; ++j) {
+            if (e2n_cg[ele * nPe + j] == id) {
+                seen = true;
+                break;
+            }
+        }
+        if (!seen) ++uniq;
+    }
+    unique_counts[GPUDevice::block_id_x()] = uniq;
+}
+
 template <typename T, DEVICE_UINT p, DEVICE_UINT PW>
 GLOBAL_FUNC void __unzip_cg1__2(const MeshGPU* const dptr_mesh,
                                 const T* const dptr_in, T* const dptr_out,
@@ -2481,6 +2510,47 @@ void MeshGPU::unzip_cg(const ot::Mesh* const pMesh,
 
     assert(pMesh->getNumLocalMeshElements() ==
            pMesh->getLocalBlockList().size());
+
+    // Queue #7: unique CG ids per hang element (compression headroom).
+    if (const char* gs = std::getenv("DENDRO_UNZIP_GATHER_STATS")) {
+        if (gs[0] == '1' && gs[1] == '\0') {
+            static bool once = false;
+            if (!once) {
+                once = true;
+                const DEVICE_UINT* ids = nullptr;
+                DEVICE_UINT nstat      = m_unzip_grid[0];
+                if (this->m_ele_ids_hang != nullptr && this->m_num_ele_hang > 0) {
+                    ids   = this->m_ele_ids_hang;
+                    nstat = this->m_num_ele_hang;
+                }
+                DEVICE_UINT* d_u = nullptr;
+                cudaMalloc(&d_u, nstat * sizeof(DEVICE_UINT));
+                __unzip_gather_unique_stats<6>
+                    <<<nstat, dim3(1, 1, 1), 0, s>>>(dptr_mesh, ids, d_u);
+                cudaStreamSynchronize(s);
+                std::vector<DEVICE_UINT> hu(nstat);
+                cudaMemcpy(hu.data(), d_u, nstat * sizeof(DEVICE_UINT),
+                           cudaMemcpyDeviceToHost);
+                cudaFree(d_u);
+                DEVICE_UINT mn = hu[0], mx = hu[0], sum = 0;
+                for (DEVICE_UINT i = 0; i < nstat; ++i) {
+                    mn = std::min(mn, hu[i]);
+                    mx = std::max(mx, hu[i]);
+                    sum += hu[i];
+                }
+                std::vector<DEVICE_UINT> sorted = hu;
+                std::sort(sorted.begin(), sorted.end());
+                const DEVICE_UINT med = sorted[nstat / 2];
+                const double mean = (double)sum / (double)nstat;
+                printf("[unzip-gather-stats] n=%u unique_cg "
+                       "min=%u med=%u max=%u mean=%.1f /nPe=%u "
+                       "(compress~%.2fx)\n",
+                       nstat, mn, med, mx, mean, 7u * 7u * 7u,
+                       (7.0 * 7.0 * 7.0) / mean);
+            }
+        }
+    }
+
     // Default 7x7 matches p=6 (nx=7). DENDRO_UNZIP_TB88=1 → 8x8 (2 full warps;
     // NCU: 49-thread blocks leave warp slots masked — A/B for hang-path).
     dim3 tb = dim3(7, 7, 1);

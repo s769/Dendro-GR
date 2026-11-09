@@ -8,12 +8,13 @@ source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
 LOG="${HOME}/Dendro-GR-notes/tier0/next_gpu_task.log"
 echo "host $(hostname) $(date -Is) next_gpu_task" | tee -a "${LOG}"
 
-# Queue #5 placeholder: frozen-mesh unzip reuse needs coding first on login.
-# When a runnable GPU probe exists, wire it here. For now report and exit 0
-# so watchers do not spin filler.
-if [[ -x "${HOME}/Dendro-GR-notes/run_tier2_frozen_unzip_probe.sh" ]]; then
-  echo "==== queue#5 frozen_unzip_probe ====" | tee -a "${LOG}"
-  bash "${HOME}/Dendro-GR-notes/run_tier2_frozen_unzip_probe.sh" | tee -a "${LOG}"
+# Prefer a concrete probe script if present; else re-gate TL q1 (fast, real).
+if [[ -x "${HOME}/Dendro-GR-notes/run_tier2_coalesce_smoke.sh" ]]; then
+  echo "==== queue#7 coalesce_smoke ====" | tee -a "${LOG}"
+  bash "${HOME}/Dendro-GR-notes/run_tier2_coalesce_smoke.sh" | tee -a "${LOG}"
+elif [[ -x "${HOME}/Dendro-GR-notes/run_tier31_q1_tl.sh" ]]; then
+  echo "==== re-gate tier31_q1_tl ====" | tee -a "${LOG}"
+  bash "${HOME}/Dendro-GR-notes/run_tier31_q1_tl.sh" | tee -a "${LOG}"
 else
-  echo "queue#5: no GPU probe yet — code frozen-mesh unzip reuse on login" | tee -a "${LOG}"
+  echo "no GPU probe script ready" | tee -a "${LOG}"
 fi
