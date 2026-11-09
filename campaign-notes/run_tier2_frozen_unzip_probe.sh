@@ -31,6 +31,10 @@ for K in 2 4 8; do
   mpirun -np 1 env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
     DENDRO_UNZIP_K_BENCH="${K}" \
     "${BIN}" "${OUT}/local.par.toml" 1 >> "${LOG}" 2>&1 || true
+  echo "==== KSHARE=${K} ====" | tee -a "${LOG}"
+  mpirun -np 1 env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
+    DENDRO_UNZIP_KSHARE="${K}" \
+    "${BIN}" "${OUT}/local.par.toml" 1 >> "${LOG}" 2>&1 || true
 done
-grep -E 'unzip-k-bench|ETS time' "${LOG}" | sed 's/\x1b\[[0-9;]*m//g' | tee "${LOG}.summary"
+grep -E 'unzip-k-bench|unzip-kshare|ETS time' "${LOG}" | sed 's/\x1b\[[0-9;]*m//g' | tee "${LOG}.summary"
 echo TIER2_FROZEN_UNZIP_PROBE_DONE | tee -a "${LOG}.summary"

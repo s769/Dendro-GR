@@ -36,6 +36,21 @@ Near-linear: serial ensemble unzip ≈ K×. Room for batching only if shared geo
 
 Raw: `tier0/tier2_frozen_unzip_probe.log`. Hang NCU + TB88 closed: `TIER2_UNZIP.md`.
 
-### Next coding
+### KSHARE CTA loop (refEL shared; stride 0 smoke, c125)
 
-True K-batch `__unzip_cg1__2`: `grid.y=K`, member stride on `dptr_in`/`dptr_out`, share `refEL`+hang setup inside CTA or across y. Compare to serial ceiling above.
+`DENDRO_UNZIP_KSHARE=8` vs serial `K_BENCH=8` (probe adds timed work after normal unzip):
+
+| mode | timed work | ~ms total | ~ms/member |
+|------|------------|----------:|-----------:|
+| serial 7 extra launches | 7× kernel | ~31–38 | ~4.5–5.5 |
+| kshare one launch K=8 | 1× CTA loop | ~33–38 | ~4.1–4.7 |
+
+**~10–15% vs serial-K** — matches NCU (gather dominates; sharing `refEL` is small). Not a production ETS lever for K=1. Keep behind env; wire nonzero member strides when ensemble unzip lands.
+
+Raw: `tier0/tier2_kshare_slim.log`.
+
+### Next
+
+1. Ensemble unzip with real `in/out` strides (production path).
+2. Coalesced gather staging (true hang-path lever from NCU) — larger change.
+3. Queue #6 parked until NCU on RHS spills.

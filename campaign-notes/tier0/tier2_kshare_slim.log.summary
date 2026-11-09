@@ -1,0 +1,9 @@
+[unzip-k-bench] serial_extra K=8 launches=7 38.490ms (5.499ms/launch)
+[unzip-k-bench] serial_extra K=8 launches=7 33.416ms (4.774ms/launch)
+[unzip-k-bench] serial_extra K=8 launches=7 31.180ms (4.454ms/launch)
+ ETS time (max) : 7.93948
+[unzip-kshare] K=8 one_launch 37.769ms (4.721ms/member equiv)
+[unzip-kshare] K=8 one_launch 34.423ms (4.303ms/member equiv)
+[unzip-kshare] K=8 one_launch 32.689ms (4.086ms/member equiv)
+ ETS time (max) : 8.44476
+KSHARE_SLIM_DONE
