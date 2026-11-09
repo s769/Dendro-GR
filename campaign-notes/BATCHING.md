@@ -26,9 +26,15 @@ TLM shape reminder: per point δF = C(u)·φ(δu), C is 24×162 (~30–40% dense
 
 ## Agent ordering
 
-1. **2.1 staged algebra** (bit-id) → free regs for K/CTA.
-2. **K/CTA interleave** — per-member speedup vs K curve (64 / 256 / 2048 blocks).
+1. **2.1 staged algebra** (bit-id) → free regs / kill local spills for K/CTA.
+2. **K/CTA interleave** — per-member speedup vs K curve (64 / 256 / 2048 blocks). Keep **one** var tile in smem (NCU: occ already smem-bound at 17.6 KB).
 3. **Pack ghosts + launches** — measure at fine-level block counts.
 4. **FP32-tangent plateau** alongside FP64 FD (after harnesses); only then TLM+TF32 prototype.
 
 Do **not** sell TLM as an acceleration story in FP64.
+
+## GB200 PT_ASYNC facts (B0 NCU, 2026-11-08)
+
+- 56 regs/thread; **local-mem 84% of L1TEX sectors**; spill requests huge.
+- Occupancy **17%**, limited by **smem** (not regs). SM throughput 13.5%; ~7% FP64 peak; L1TEX scoreboard ~53% of issue stalls.
+- Dropping smem (PT_GMEM) **hurts** ETS (+51%). F32SU −8% ETS pending bit-id. Staging must cut *local spills / live ranges*, not delete the shared tile.

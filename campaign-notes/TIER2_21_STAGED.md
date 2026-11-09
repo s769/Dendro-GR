@@ -32,6 +32,16 @@ GB200 result changes the priority: local mem is crushing L1TEX; a reload that re
 3. Regen staged algebra (`CodeGen/bssn_manually_staged.py` / `--staged_type`) behind env; A/B ETS + bit-id vs unstaged on c106.
 4. Only then B2: K/CTA interleave speedup curve.
 
+## RHS path A/B (q8, TIME_END=0.25, 1 GPU, c106)
+
+| mode | ETS (s) | vs ASYNC | note |
+|------|--------:|---------:|------|
+| **PT_ASYNC** (prod) | **2.449** | — | smem 17.6 KB, occ 17% |
+| PT_GMEM | 3.697 | **+51%** | 0 smem → **NO-GO ETS** (L1/L2 miss tax > occ win) |
+| PT_F32SU | 2.243 | **−8.4%** | float su tile; **needs C_HAM bit-id** before prod |
+
+Raw: `tier0/tier21_rhs_ab.log`. GMEM confirms: don’t chase occupancy by dropping the shared stencil tile. F32SU is a candidate smem shrink, not algebra staging.
+
 ## Status
 
-**B0 done → B1 in progress.**
+**B0 done.** B1 = true live-range / CSE staging inside PT_ASYNC (not GMEM, not WS-HBM). F32SU bit-id is a side check.
