@@ -15,6 +15,7 @@
 
 #include "bssnChkptSchema.h"
 #include "bssnCtxGPU.cuh"
+#include <chrono>
 #include "meshReplay.h"
 // CONST_MEM DEVICE_REAL device::refel_1d[2 * REFEL_CONST_MEM_MAX];
 
@@ -467,13 +468,89 @@ int BSSNCtxGPU::finalize() { return 0; }
 
 int BSSNCtxGPU::write_vtu(bool extract) {
     if (!m_uiMesh->isActive()) return 0;
+    static const bool tm_on = std::getenv("DENDRO_TIME_EXTRACT") != nullptr;
+    static double tm_acc[6] = {0, 0, 0, 0, 0, 0};
+    static unsigned tm_n    = 0;
+    auto tm_now = []() {
+        return std::chrono::duration<double>(
+                   std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    };
+    double tm0 = tm_on ? tm_now() : 0.0;
+    // DENDRO_GW_SHELL_ONLY=1: evaluate constraints/psi4 only on blocks near the
+    // GW extraction spheres, using a DEVICE unzip + per-block D2H of just those
+    // blocks (no host unzip of the whole mesh). Constraint norms are then
+    // INVALID; use only when the waveform is the observable.
+    static const bool gw_shell_only = []() {
+        const char* e = std::getenv("DENDRO_GW_SHELL_ONLY");
+        return e && e[0] == '1' && e[1] == '\0';
+    }();
+    static const double gw_shell_margin = []() {
+        const char* e = std::getenv("DENDRO_GW_SHELL_MARGIN");
+        return e ? atof(e) : 2.0;  // in units of the block width
+    }();
 
     DVec& m_evar     = m_var[VL::CPU_EV];
     DVec& m_evar_unz = m_var[VL::CPU_EV_UZ_IN];
     DVec& m_cvar     = m_var[VL::CPU_CV];
     DVec& m_cvar_unz = m_var[VL::CPU_CV_UZ_IN];
 
-    this->unzip(m_evar, m_evar_unz, BSSN_ASYNC_COMM_K);
+    if (gw_shell_only)
+    {
+        this->unzip(m_var[VL::GPU_EV], m_var[VL::GPU_EV_UZ_IN],
+                    BSSN_ASYNC_COMM_K);  // device unzip (fast)
+        GPUDevice::device_synchronize();
+    }
+    else
+        this->unzip(m_evar, m_evar_unz, BSSN_ASYNC_COMM_K);
+
+    // DENDRO_UNZIP_CMP=1: one-shot comparison of host unzip vs device unzip of
+    // the same state (debug; run with DENDRO_GW_SHELL_ONLY unset).
+    {
+        static bool cmp_done = false;
+        if (!cmp_done && std::getenv("DENDRO_UNZIP_CMP") && !gw_shell_only &&
+            m_uiMesh->getMPICommSizeGlobal() == 1) {
+            cmp_done = true;
+            const size_t unz_sz = m_uiMesh->getDegOfFreedomUnZip();
+            const size_t tot    = unz_sz * bssn::BSSN_NUM_VARS;
+            this->unzip(m_var[VL::GPU_EV], m_var[VL::GPU_EV_UZ_IN],
+                        BSSN_ASYNC_COMM_K);
+            GPUDevice::device_synchronize();
+            std::vector<double> hd(tot);
+            cudaMemcpy(hd.data(), m_var[VL::GPU_EV_UZ_IN].get_vec_ptr(),
+                       tot * sizeof(double), cudaMemcpyDeviceToHost);
+            const double* hh = m_evar_unz.get_vec_ptr();
+            const std::vector<ot::Block>& bl = m_uiMesh->getLocalBlockList();
+            std::vector<double> wmax(bssn::BSSN_NUM_VARS, 0.0),
+                vmax(bssn::BSSN_NUM_VARS, 0.0);
+            double worst = 0.0; size_t wb = 0; unsigned wv = 0;
+            double byflag[2] = {0, 0};
+            for (size_t b = 0; b < bl.size(); b++) {
+                const size_t off = bl[b].getOffset();
+                const size_t n   = (size_t)bl[b].getAllocationSzX() *
+                                 bl[b].getAllocationSzY() *
+                                 bl[b].getAllocationSzZ();
+                for (unsigned v = 0; v < bssn::BSSN_NUM_VARS; v++)
+                    for (size_t i = 0; i < n; i++) {
+                        const double a = hh[v * unz_sz + off + i];
+                        const double c = hd[v * unz_sz + off + i];
+                        const double d = fabs(a - c);
+                        if (fabs(a) > vmax[v]) vmax[v] = fabs(a);
+                        if (d > wmax[v]) wmax[v] = d;
+                        if (d > worst) { worst = d; wb = b; wv = v; }
+                        if (d > byflag[bl[b].getBlkNodeFlag() != 0])
+                            byflag[bl[b].getBlkNodeFlag() != 0] = d;
+                    }
+            }
+            printf("[unzip-cmp] blocks=%zu worst|diff|=%.3e var=%u block=%zu "
+                   "bflag=%u  max diff interior-blocks=%.3e boundary-blocks=%.3e\n",
+                   bl.size(), worst, wv, wb, bl[wb].getBlkNodeFlag(),
+                   byflag[0], byflag[1]);
+            for (unsigned v = 0; v < bssn::BSSN_NUM_VARS; v++)
+                printf("[unzip-cmp] var %2u max|a|=%.3e max|diff|=%.3e\n", v,
+                       vmax[v], wmax[v]);
+        }
+    }
 
     DendroScalar* consUnzipVar[bssn::BSSN_CONSTRAINT_NUM_VARS];
     DendroScalar* consVar[bssn::BSSN_CONSTRAINT_NUM_VARS];
@@ -486,6 +563,7 @@ int BSSNCtxGPU::write_vtu(bool extract) {
 
     m_evar.to_2d(evolVar);
     m_cvar.to_2d(consVar);
+    double tm1 = tm_on ? tm_now() : 0.0;
 
 #if BSSN_COMPUTE_CONSTRAINTS
 
@@ -522,6 +600,38 @@ int BSSNCtxGPU::write_vtu(bool extract) {
         ptmax[1] = GRIDY_TO_Y(blkList[blk].getBlockNode().maxY()) + PW * dy;
         ptmax[2] = GRIDZ_TO_Z(blkList[blk].getBlockNode().maxZ()) + PW * dz;
 
+        if (gw_shell_only) {
+            // Keep only blocks whose (padded) box, widened by one block width,
+            // intersects some extraction sphere centred at the origin.
+            double dmin2 = 0.0, dmax2 = 0.0;
+            double mw    = 0.0;
+            for (int a = 0; a < 3; a++) {
+                const double lo = ptmin[a], hi = ptmax[a];
+                const double nearest =
+                    (lo > 0.0) ? lo : ((hi < 0.0) ? hi : 0.0);
+                const double farthest =
+                    (fabs(lo) > fabs(hi)) ? fabs(lo) : fabs(hi);
+                dmin2 += nearest * nearest;
+                dmax2 += farthest * farthest;
+                if (hi - lo > mw) mw = hi - lo;
+            }
+            mw *= gw_shell_margin;
+            const double dmin = sqrt(dmin2) - mw, dmax = sqrt(dmax2) + mw;
+            bool keep = false;
+            for (unsigned int ir = 0; ir < GW::BSSN_GW_NUM_RADAII && !keep;
+                 ir++) {
+                const double R = GW::BSSN_GW_RADAII[ir];
+                keep           = (dmin <= R) && (R <= dmax);
+            }
+            if (!keep) continue;
+            // D2H of this block's 24 unzipped evolution vars (one 2D copy).
+            const size_t unz_sz = m_uiMesh->getDegOfFreedomUnZip();
+            cudaMemcpy2D(evolUnzipVar[0] + offset, unz_sz * sizeof(double),
+                         m_var[VL::GPU_EV_UZ_IN].get_vec_ptr() + offset,
+                         unz_sz * sizeof(double),
+                         (size_t)sz[0] * sz[1] * sz[2] * sizeof(double),
+                         bssn::BSSN_NUM_VARS, cudaMemcpyDeviceToHost);
+        }
         physical_constraints(consUnzipVar, (const DendroScalar**)evolUnzipVar,
                              offset, ptmin, ptmax, sz, bflag);
     }
@@ -529,9 +639,11 @@ int BSSNCtxGPU::write_vtu(bool extract) {
     /*double consVecMin[bssn::BSSN_CONSTRAINT_NUM_VARS];
     double consVecMax[bssn::BSSN_CONSTRAINT_NUM_VARS];*/
     double constraintMaskedL2[bssn::BSSN_CONSTRAINT_NUM_VARS];
+    double tm2 = tm_on ? tm_now() : 0.0;
     this->zip(m_cvar_unz, m_cvar);
     m_uiMesh->readFromGhostBegin(m_cvar.get_vec_ptr(), m_cvar.get_dof());
     m_uiMesh->readFromGhostEnd(m_cvar.get_vec_ptr(), m_cvar.get_dof());
+    double tm3 = tm_on ? tm_now() : 0.0;
 
     if (extract) {
         // pre-enforcement min since the last write; NaN if nothing was
@@ -552,12 +664,28 @@ int BSSNCtxGPU::write_vtu(bool extract) {
                                  evolVar[BHLOC::EXTRACTION_VAR_ID],
                                  BHLOC::EXTRACTION_TOL, m_uiTinfo._m_uiStep,
                                  m_uiTinfo._m_uiT, minDetGt);
+        double tm4 = tm_on ? tm_now() : 0.0;
 #ifndef BSSN_KERR_SCHILD_TEST
 #ifdef BSSN_EXTRACT_GRAVITATIONAL_WAVES
         GW::extractFarFieldPsi4(m_uiMesh, (const DendroScalar**)consVar,
                                 m_uiTinfo._m_uiStep, m_uiTinfo._m_uiT);
 #endif
 #endif
+        if (tm_on) {
+            const double tm5 = tm_now();
+            tm_acc[0] += tm1 - tm0;  // unzip + D2H + to_2d
+            tm_acc[1] += tm2 - tm1;  // (setup)
+            tm_acc[2] += tm3 - tm2;  // (physical_constraints loop precedes tm2? see below)
+            tm_acc[3] += tm4 - tm3;  // extractConstraints
+            tm_acc[4] += tm5 - tm4;  // extractFarFieldPsi4
+            tm_acc[5] += tm5 - tm0;
+            if (++tm_n % 5 == 0 && !m_uiMesh->getMPIRankGlobal())
+                printf("[extract-time] n=%u total=%.2fs unzip+d2h=%.2f "
+                       "constraints_loop+pre=%.2f zip+ghost=%.2f "
+                       "extractConstraints=%.2f psi4=%.2f\n",
+                       tm_n, tm_acc[5], tm_acc[0], tm_acc[1], tm_acc[2],
+                       tm_acc[3], tm_acc[4]);
+        }
     }
 
 #endif

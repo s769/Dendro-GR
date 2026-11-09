@@ -108,3 +108,15 @@ CAVEATS: (1) this "q1 smoke" case is coarse and the window is dominated by an un
 (2) only 2 eps values here (eps 3e-4, 1e-2 replays on c106-031 were cut off by node expiry — partial data only, see below if appended); (3) coarse resolution only — fine-res waveform FD NOT done;
 (4) run-to-run noise: psi4 output differs ~1e-18 abs between identical serial runs (norm/extraction noise, evolution otherwise reproducible to print precision) — far below the FD signal.
 Decision stands: TLM not needed on this evidence; re-open if a well-resolved physical window shows a poor plateau.
+
+### Update: all four step sizes (partial runs for 3e-4, 1e-2 cut at t=24.5 by node expiry; compared on matched windows)
+Reference eps=3e-3, complex dpsi4_22/dm, relative L2 difference over the common window:
+
+| radius | eps=3e-4 | eps=1e-3 | eps=1e-2 |
+|-------:|---------:|---------:|---------:|
+| r=10 | 4.2e-3 | 3.8e-3 | 4.2e-2 |
+| r=15 | 7.4e-3 | 5.5e-3 | 7.2e-2 |
+| r=25 | 1.8e-4 | 3.4e-4 | 1.7e-3 |
+
+**FD plateau: flat (<1%) for eps in [3e-4, 3e-3]; eps=1e-2 shows 2-7% truncation bias.** Recommended inversion FD step for BH1.MASS about 0.48: eps ~1e-3 (central).
+Still caveated: coarse resolution, unphysical burst-dominated window, single parameter. Fine-resolution waveform FD not done.

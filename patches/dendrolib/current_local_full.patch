@@ -1,5 +1,5 @@
 diff --git a/GPU/include/mesh_gpu.cuh b/GPU/include/mesh_gpu.cuh
-index 0808146..2529b95 100644
+index 0808146..664cb7c 100644
 --- a/GPU/include/mesh_gpu.cuh
 +++ b/GPU/include/mesh_gpu.cuh
 @@ -10,6 +10,9 @@
@@ -271,7 +271,7 @@ index 0808146..2529b95 100644
  template <typename T>
  GLOBAL_FUNC __launch_bounds__(GPU_MAX_THREADS_PER_BLOCK) void __read_rb_cg__(
      const MeshGPU* const dptr_mesh, const T* const dptr_in, T* const dptr_out) {
-@@ -2462,14 +2624,198 @@ void MeshGPU::unzip_cg(const ot::Mesh* const pMesh,
+@@ -2462,14 +2624,213 @@ void MeshGPU::unzip_cg(const ot::Mesh* const pMesh,
  
      assert(pMesh->getNumLocalMeshElements() ==
             pMesh->getLocalBlockList().size());
@@ -474,10 +474,25 @@ index 0808146..2529b95 100644
 +            cudaEventDestroy(e1);
 +        }
 +    }
++}
++
++template <typename T, typename stream>
++void MeshGPU::unzip_cg_part(const ot::Mesh* const pMesh,
++                            const MeshGPU* const dptr_mesh,
++                            const T* const dptr_in, T* const dptr_out,
++                            unsigned int dof, unsigned int part, stream s) {
++    if (!pMesh->isActive()) return;
++    const DEVICE_UINT n   = (part == 0) ? this->m_num_ele_indep : this->m_num_ele_dep;
++    const DEVICE_UINT* ids = (part == 0) ? this->m_ele_ids_indep : this->m_ele_ids_dep;
++    if (n == 0 || ids == nullptr) return;
++    dim3 tb = dim3(7, 7, 1);
++    dim3 gb = dim3(n, 1, dof);
++    __unzip_cg1__2<T, 6, 3><<<gb, tb, 0, s>>>(dptr_mesh, dptr_in, dptr_out,
++                                              ids, 1, 0, 0, 0);
  }
  
  template <typename T, typename stream>
-@@ -2788,4 +3134,137 @@ void MeshGPU::read_from_ghost_cg_end(ot::AsyncExchangeContex& ctx_host,
+@@ -2788,4 +3149,137 @@ void MeshGPU::read_from_ghost_cg_end(ot::AsyncExchangeContex& ctx_host,
      return;
  }
  
@@ -616,10 +631,10 @@ index 0808146..2529b95 100644
 +
  };  // namespace device
 diff --git a/GPU/src/mesh_gpu.cu b/GPU/src/mesh_gpu.cu
-index b3a068f..c3a43bf 100644
+index b3a068f..c7bbf09 100644
 --- a/GPU/src/mesh_gpu.cu
 +++ b/GPU/src/mesh_gpu.cu
-@@ -275,6 +275,66 @@ MeshGPU* MeshGPU::alloc_mesh_on_device(const ot::Mesh* pMesh) {
+@@ -275,6 +275,95 @@ MeshGPU* MeshGPU::alloc_mesh_on_device(const ot::Mesh* pMesh) {
      GPUDevice::host_to_device_async<HangingInfo, cudaStream_t>(
          hanging_info, this->m_hinfo, pNodes.size());
  
@@ -628,6 +643,7 @@ index b3a068f..c3a43bf 100644
 +        std::vector<DEVICE_UINT> active_ids;
 +        std::vector<DEVICE_UINT> hang_ids;
 +        std::vector<DEVICE_UINT> nh_ids;
++        std::vector<DEVICE_UINT> indep_ids, dep_ids;
 +        active_ids.reserve(pNodes.size());
 +        hang_ids.reserve(pNodes.size() / 4);
 +        nh_ids.reserve(pNodes.size());
@@ -640,6 +656,18 @@ index b3a068f..c3a43bf 100644
 +                continue;
 +            }
 +            active_ids.push_back(ele);
++            {
++                const std::vector<unsigned int>& e2n = pMesh->getE2NMapping();
++                const unsigned int nPe_ = pMesh->getNumNodesPerElement();
++                const unsigned int nlb  = pMesh->getNodeLocalBegin();
++                const unsigned int nle  = pMesh->getNodeLocalEnd();
++                bool dep = false;
++                for (unsigned int k = 0; k < nPe_ && !dep; k++) {
++                    const unsigned int g = e2n[ele * nPe_ + k];
++                    dep = (g < nlb) || (g >= nle);
++                }
++                (dep ? dep_ids : indep_ids).push_back(ele);
++            }
 +            if (hanging_info[ele].hflag != 0)
 +                hang_ids.push_back(ele);
 +            else
@@ -669,8 +697,24 @@ index b3a068f..c3a43bf 100644
 +        if (!nh_ids.empty())
 +            GPUDevice::host_to_device_async<DEVICE_UINT, cudaStream_t>(
 +                nh_ids.data(), this->m_ele_ids_nh, nh_ids.size());
++        this->m_num_ele_indep = static_cast<DEVICE_UINT>(indep_ids.size());
++        this->m_num_ele_dep   = static_cast<DEVICE_UINT>(dep_ids.size());
++        this->m_ele_ids_indep = GPUDevice::device_malloc<DEVICE_UINT>(
++            indep_ids.size() > 0 ? indep_ids.size() : 1);
++        this->m_ele_ids_dep = GPUDevice::device_malloc<DEVICE_UINT>(
++            dep_ids.size() > 0 ? dep_ids.size() : 1);
++        if (!indep_ids.empty())
++            GPUDevice::host_to_device_async<DEVICE_UINT, cudaStream_t>(
++                indep_ids.data(), this->m_ele_ids_indep, indep_ids.size());
++        if (!dep_ids.empty())
++            GPUDevice::host_to_device_async<DEVICE_UINT, cudaStream_t>(
++                dep_ids.data(), this->m_ele_ids_dep, dep_ids.size());
 +        GPUDevice::host_to_device(this, dptr_mesh, 1);
 +        if (pMesh->getMPIRank() == 0) {
++            printf("[unzip-overlap] active=%zu indep=%zu dep=%zu (%.1f%% indep)\n",
++                   active_ids.size(), indep_ids.size(), dep_ids.size(),
++                   active_ids.empty() ? 0.0
++                                      : 100.0 * indep_ids.size() / active_ids.size());
 +            const double hang_frac =
 +                active_ids.empty()
 +                    ? 0.0
@@ -686,7 +730,7 @@ index b3a068f..c3a43bf 100644
      const Point pt_min = pMesh->getDomainMinPt();
      const Point pt_max = pMesh->getDomainMaxPt();
  
-@@ -352,10 +412,22 @@ void MeshGPU::dealloc_mesh_on_device(MeshGPU* dptr_mesh) {
+@@ -352,10 +441,30 @@ void MeshGPU::dealloc_mesh_on_device(MeshGPU* dptr_mesh) {
      GPUDevice::device_free<BlockGPU3D>(this->m_blk_list);
      GPUDevice::device_free<TNode3d>(this->m_all_elements);
      GPUDevice::device_free<HangingInfo>(this->m_hinfo);
@@ -696,6 +740,10 @@ index b3a068f..c3a43bf 100644
 +        GPUDevice::device_free<DEVICE_UINT>(this->m_ele_ids_hang);
 +    if (this->m_ele_ids_nh != nullptr)
 +        GPUDevice::device_free<DEVICE_UINT>(this->m_ele_ids_nh);
++    if (this->m_ele_ids_indep != nullptr)
++        GPUDevice::device_free<DEVICE_UINT>(this->m_ele_ids_indep);
++    if (this->m_ele_ids_dep != nullptr)
++        GPUDevice::device_free<DEVICE_UINT>(this->m_ele_ids_dep);
  
      this->m_e2b_unzip_map        = nullptr;
      this->m_e2b_unzip_map_count  = nullptr;
@@ -706,11 +754,15 @@ index b3a068f..c3a43bf 100644
 +    this->m_num_ele_active       = 0;
 +    this->m_num_ele_hang         = 0;
 +    this->m_num_ele_nh           = 0;
++    this->m_ele_ids_indep        = nullptr;
++    this->m_ele_ids_dep          = nullptr;
++    this->m_num_ele_indep        = 0;
++    this->m_num_ele_dep          = 0;
  
      this->m_elem_send_sm         = nullptr;
      this->m_elem_recv_sm         = nullptr;
 diff --git a/ODE/include/ctx.h b/ODE/include/ctx.h
-index ac7d0c2..a40a7a9 100644
+index ac7d0c2..e6da357 100644
 --- a/ODE/include/ctx.h
 +++ b/ODE/include/ctx.h
 @@ -10,6 +10,7 @@
@@ -721,7 +773,7 @@ index ac7d0c2..a40a7a9 100644
  #include <functional>
  #include <iostream>
  #include <vector>
-@@ -584,6 +585,111 @@ void Ctx<DerivedCtx, T, I>::unzip(ot::DVector<T, I>& in, ot::DVector<T, I>& out,
+@@ -584,6 +585,137 @@ void Ctx<DerivedCtx, T, I>::unzip(ot::DVector<T, I>& in, ot::DVector<T, I>& out,
          device::MeshGPU* dptr_mesh = this->get_meshgpu_device_ptr();
          device::MeshGPU* mesh_gpu  = this->get_meshgpu_host_handle();
  
@@ -830,10 +882,36 @@ index ac7d0c2..a40a7a9 100644
 +            }
 +        }
 +
++        // DENDRO_UNZIP_OVERLAP=1 (async_k==1): unzip the ghost-independent
++        // elements while the ghost exchange is in flight, then the dependent
++        // ones after it completes. Same kernel, same per-element results.
++        static const bool unzip_overlap = []() {
++            const char* e = std::getenv("DENDRO_UNZIP_OVERLAP");
++            return e && e[0] == '1' && e[1] == '\0';
++        }();
++        if (unzip_overlap && async_k == 1) {
++#ifdef __PROFILE_CTX__
++            m_uiCtxpt[CTXPROFILE::UNZIP].start();
++#endif
++            mesh_gpu->read_from_ghost_cg_begin<DEVICE_REAL, cudaStream_t>(
++                m_mpi_ctx[0], m_mpi_ctx_device[0], m_uiMesh, dptr_mesh,
++                in_ptr, dof, 0);
++            mesh_gpu->unzip_cg_part<DEVICE_REAL, cudaStream_t>(
++                m_uiMesh, dptr_mesh, in_ptr, out_ptr, dof, 0, 0);
++            mesh_gpu->read_from_ghost_cg_end<DEVICE_REAL, cudaStream_t>(
++                m_mpi_ctx[0], m_mpi_ctx_device[0], m_uiMesh, dptr_mesh,
++                in_ptr, dof, 0);
++            mesh_gpu->unzip_cg_part<DEVICE_REAL, cudaStream_t>(
++                m_uiMesh, dptr_mesh, in_ptr, out_ptr, dof, 1, 0);
++            GPUDevice::device_synchronize();
++#ifdef __PROFILE_CTX__
++            m_uiCtxpt[CTXPROFILE::UNZIP].stop();
++#endif
++        } else {
          for (unsigned int i = 0; i < async_k; i++) {
              const unsigned int v_begin  = ((i * dof) / async_k);
              const unsigned int v_end    = (((i + 1) * dof) / async_k);
-@@ -607,11 +713,23 @@ void Ctx<DerivedCtx, T, I>::unzip(ot::DVector<T, I>& in, ot::DVector<T, I>& out,
+@@ -607,11 +739,24 @@ void Ctx<DerivedCtx, T, I>::unzip(ot::DVector<T, I>& in, ot::DVector<T, I>& out,
              mesh_gpu->unzip_cg<DEVICE_REAL, cudaStream_t>(
                  m_uiMesh, dptr_mesh, in_ptr + v_begin * sz_per_dof_zip,
                  out_ptr + v_begin * sz_per_dof_uzip, batch_sz, 0);
@@ -855,14 +933,15 @@ index ac7d0c2..a40a7a9 100644
 +            if (!(bsync && bsync[0] == '1' && bsync[1] == '\0'))
 +                GPUDevice::device_synchronize();
 +        }
++        }  // end !unzip_overlap
  #endif
      }
  
 diff --git a/include/mesh_gpu.h b/include/mesh_gpu.h
-index 8e711bd..3bd3a27 100644
+index 8e711bd..73138fd 100644
 --- a/include/mesh_gpu.h
 +++ b/include/mesh_gpu.h
-@@ -131,6 +131,14 @@ class MeshGPU {
+@@ -131,6 +131,21 @@ class MeshGPU {
      DEVICE_UINT* m_cg_recv_f              = nullptr;
      HangingInfo* m_hinfo                  = nullptr;
  
@@ -873,11 +952,34 @@ index 8e711bd..3bd3a27 100644
 +    DEVICE_UINT m_num_ele_active          = 0;
 +    DEVICE_UINT m_num_ele_hang            = 0;
 +    DEVICE_UINT m_num_ele_nh              = 0;
++    /**@brief: ghost-independence split of active elements: 'indep' elements
++     * read only locally-owned CG nodes (can unzip while the ghost exchange is
++     * in flight); 'dep' read at least one ghost node. */
++    DEVICE_UINT* m_ele_ids_indep          = nullptr;
++    DEVICE_UINT* m_ele_ids_dep            = nullptr;
++    DEVICE_UINT m_num_ele_indep           = 0;
++    DEVICE_UINT m_num_ele_dep             = 0;
 +
      DEVICE_UINT m_max_send_ele            = 1;
      DEVICE_UINT m_max_recv_ele            = 1;
  
-@@ -226,6 +234,27 @@ class MeshGPU {
+@@ -194,6 +209,15 @@ class MeshGPU {
+                   const T* const dptr_in, T* const dptr_out,
+                   unsigned int dof = 1, stream s = (stream)0);
+ 
++    /**@brief unzip only the ghost-independent (part=0) or ghost-dependent
++     * (part=1) active elements. Launch part 0 between ghost-exchange begin()
++     * and end(); part 1 after end(). Together equal unzip_cg. */
++    template <typename T, typename stream>
++    void unzip_cg_part(const ot::Mesh* const pMesh,
++                       const MeshGPU* const dptr_mesh, const T* const dptr_in,
++                       T* const dptr_out, unsigned int dof, unsigned int part,
++                       stream s = (stream)0);
++
+     template <typename T, typename stream>
+     void zip_cg(const ot::Mesh* const pMesh, const MeshGPU* const dptr_mesh,
+                 const T* const dptr_in, T* const dptr_out, unsigned int dof = 1,
+@@ -226,6 +250,27 @@ class MeshGPU {
                                  const ot::Mesh* const pMesh,
                                  const MeshGPU* const dptr_mesh, T* dptr_vec,
                                  unsigned int dof = 1, stream s = (stream)0);
