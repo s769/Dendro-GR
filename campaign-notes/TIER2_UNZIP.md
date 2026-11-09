@@ -44,12 +44,27 @@ Default now: one `device_synchronize` after all `async_k` unzip batches (GPU can
 
 **ETS-neutral.** Keep deferred as default (hygiene). Nsys mix unchanged (~40/28/19). Raw: `tier0/tier2_unzip_batchsync_{ab,long}.log`.
 
+### `BSSN_ASYNC_COMM_K` sweep (q8/4GPU, deferred sync)
+
+Production pars use **K=1**. Raising K (must divide 24) **hurts** ETS:
+
+| K | ETS (s) |
+|--:|--------:|
+| 1 | **2.133** |
+| 2 | 2.216 |
+| 3 | 2.304 |
+| 4 | 2.385 |
+| 6 | 2.531 |
+| 8 | 2.735 |
+
+Longer confirm: K=1 → 3.924 vs K=4 → 4.409 (`TIME_END=1.0`). **Keep K=1.** Raw: `tier0/tier2_async_k_sweep.log`.
+
 ## Next levers (ordered)
 
 1. Hang-path / occupancy (ncu on `__unzip_cg1__2` hang branch; tile/smem)
-2. Deeper ghost/unzip stream overlap (per-batch CUDA streams, not just deferred sync)
-3. Frozen-mesh ensemble: unzip geometry once (Tier 1.3 synergy)
-4. Tier 2.1 staged RHS algebra (RHS is still 40%)
+2. Frozen-mesh ensemble: unzip geometry once (Tier 1.3 synergy) — only real multi-member win left on unzip
+3. Tier 2.1 staged RHS algebra (RHS is still 40%) — after NCU
+4. ~~async_k / hang-nh split / batch-sync~~ **closed no-go / neutral**
 
 ### Longer confirm `TIME_END=1.0` (c125-022)
 

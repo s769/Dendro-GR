@@ -80,3 +80,5 @@ Per item: what changed, numbers in the same format as GB200_RESULTS.md, and for 
 | 2.unzip hang/nh split | **no-go ETS** | hang 70–99% of active; dual +0–2%; active-skip −0.5% noise (`TIER2_UNZIP.md`) |
 | 2.5 2-node q8 | **done** | 4→8 GPU 2.145→1.676s (1.28×, eff 0.64); 1→8 eff 0.35 (`TIER2_SCALE.md`) |
 | 2.1 staged algebra | **parked** | prior A100 proto slower; need GB200 NCU first (`TIER2_21_STAGED.md`) |
+| 2.unzip batch-sync defer | **ETS-neutral** | default deferred; prod had `ASYNC_COMM_K=1` so no overlap (`TIER2_UNZIP.md`) |
+| 2.unzip async_k sweep | **no-go** | K=1 best (2.13s); K↑ monotonically worse to 2.73 @K=8 (`tier0/tier2_async_k_sweep.log`) |
