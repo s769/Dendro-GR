@@ -41,13 +41,12 @@ Differentiated BSSN RHS: given background state `u` and K tangent vectors `v[k]`
 - **Harness v5 PASS:** `tl_Bdriver_test` — Γ-driver B⁰ TL: δB⁰ (damping+advection+KO) and δβ⁰ coupling, eps 1e-6/1e-7 on c106 (`tier0/tier31_Bdriver.log`).
 - **Codegen scaffold PASS:** `CodeGen/bssn_tl_gauge.py` — symbolic TL of α/β⁰/B⁰/χ matches harness closed forms (7/7). Emit: `bssn_tl_gauge.inc.cuh`.
 - **Harness v6 PASS:** `tl_chi_test` — χ TL vs FD (δχ, δα, δK), eps 1e-6/1e-7 on c106 (`tier0/tier31_chi.log`).
+- **Codegen 10/10 PASS** incl. gt00 (δα, δAt00, weighted-Lie δgt00).
+- **Harness v7 PASS:** `tl_gt_test` — gt00 TL vs FD, eps 1e-6/1e-7 on c106 (`tier0/tier31_gt.log`).
+- **Tier 3.2 PASS:** maxdepth Richardson q4 — see `TIER32_RICHARDSON.md`.
 
 ### Next coding slice
 
-1. ~~Port TL onto device PT stencils~~ **done**.
-2. ~~Wire one-block dump from frozen-mesh q1~~ **done**.
-3. ~~Add radiative BC linearization~~ **done**.
-4. ~~Interior β⁰ TL~~ **done**.
-5. ~~Γ-driver B⁰ TL (δB⁰ + δβ⁰)~~ **done**.
-6. ~~SymPy TL scaffold + χ device gate~~ **done**.
-7. Extend codegen to gt/At/K/Gt; emit fused TL kernel. Tier 3.2 Richardson q4 in parallel on GPU.
+1. ~~… gauge / χ / gt00 scaffold~~ **done through harness v7**.
+2. Full tensor Lie for `gt` (γ_ik ∂_j β^k terms) + At/K/Gt TL emit.
+3. Tier 3.3 hybridization-length (orbits) knob.
