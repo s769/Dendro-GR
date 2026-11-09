@@ -18,7 +18,8 @@ Do **not** run filler ETS loops. When a GPU task finishes, start the next item t
 | 12 | Tier 3.2: dual-res Richardson pair at q=4 (maxdepth knob) | yes | **done** (`TIER32_RICHARDSON.md`) |
 | 13 | Tier 3.1: SymPy TL gt00 scaffold + device gate | mixed | **done** |
 | 14 | Tier 3.1: full tensor Lie gt00 (δgt0/δgt1/δα/δAt0) | mixed | **done** (`bssn_tl_gauge` 11/11; `tl_gt_test` PASS) |
-| 15 | Tier 3.1: At/K/Gt TL codegen + device gates | mixed | **next** |
-| 16 | Tier 3.3: hybridization-length (orbits) knob + q8 cost | mixed | queued |
+| 15 | Tier 3.1: K TL (product/KO; lap(α) deferred) | yes (short) | **done** (`tl_K_test` PASS) |
+| 16 | Tier 3.1: At/Gt TL + lap(α) in K; fused emit | mixed | **next** |
+| 17 | Tier 3.3: hybridization-length (orbits) knob + q8 cost | mixed | queued |
 
 Automation: when a new idev goes `R`, run the **next queued GPU task**, not a keep-alive cycle.

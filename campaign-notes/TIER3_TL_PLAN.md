@@ -48,5 +48,5 @@ Differentiated BSSN RHS: given background state `u` and K tangent vectors `v[k]`
 ### Next coding slice
 
 1. ~~gauge / χ / gt00 full Lie~~ **done**.
-2. At/K/Gt TL codegen + device gates; then fused emit.
+2. ~~K TL (δK/δα product+KO)~~ **done** (`tl_K_test`). At/Gt + lap(α); fused emit.
 3. Tier 3.3 hybridization-length (orbits) knob.
