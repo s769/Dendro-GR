@@ -1,0 +1,37 @@
+==== baseline  ====
+================= Grid Info (Before init grid converge):=======================================================
+===============================================================================================================
+================= Grid Info (After init grid converge):=======================================================
+===============================================================================================================
+[unzip-time] nh=110 0.237ms hang=1636 1.209ms (84% hang)
+[unzip-time] nh=143 0.227ms hang=1548 1.047ms (82% hang)
+[unzip-time] nh=110 0.198ms hang=1487 1.006ms (84% hang)
+[unzip-time] nh=111 0.250ms hang=1667 1.186ms (83% hang)
+[unzip-time] nh=110 0.200ms hang=1487 1.153ms (85% hang)
+[unzip-time] nh=110 0.203ms hang=1636 1.309ms (87% hang)
+[unzip-time] nh=111 0.215ms hang=1667 1.280ms (86% hang)
+[unzip-time] nh=143 0.212ms hang=1548 1.338ms (86% hang)
+[unzip-time] nh=110 0.148ms hang=1487 1.127ms (88% hang)
+[unzip-time] nh=111 0.215ms hang=1667 1.333ms (86% hang)
+[unzip-time] nh=110 0.205ms hang=1636 1.395ms (87% hang)
+[unzip-time] nh=143 0.277ms hang=1548 1.352ms (83% hang)
+ ETS time (max) : 2.17974
+==== sortgather DENDRO_UNZIP_SORT_GATHER=1 ====
+================= Grid Info (Before init grid converge):=======================================================
+===============================================================================================================
+================= Grid Info (After init grid converge):=======================================================
+===============================================================================================================
+[unzip-time] nh=110 0.240ms hang=1636 5.872ms (96% hang)
+[unzip-time] nh=110 0.202ms hang=1487 5.323ms (96% hang)
+[unzip-time] nh=143 0.211ms hang=1548 5.552ms (96% hang)
+[unzip-time] nh=111 0.244ms hang=1667 5.899ms (96% hang)
+[unzip-time] nh=110 0.145ms hang=1487 5.082ms (97% hang)
+[unzip-time] nh=110 0.183ms hang=1636 5.302ms (97% hang)
+[unzip-time] nh=143 0.208ms hang=1548 5.460ms (96% hang)
+[unzip-time] nh=111 0.227ms hang=1667 5.712ms (96% hang)
+[unzip-time] nh=110 0.156ms hang=1487 4.806ms (97% hang)
+[unzip-time] nh=143 0.171ms hang=1548 5.113ms (97% hang)
+[unzip-time] nh=110 0.187ms hang=1636 5.380ms (97% hang)
+[unzip-time] nh=111 0.254ms hang=1667 5.521ms (96% hang)
+ ETS time (max) : 3.88874
+TIER2_SORT_GATHER_AB_DONE

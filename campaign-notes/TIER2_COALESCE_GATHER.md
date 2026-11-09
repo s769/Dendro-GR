@@ -29,4 +29,25 @@ Same q8/4GPU short: unzip kernel time −≥15% ETS, or NCU excessive sectors �
 
 ## Status
 
-Design. KSHARE (~10–15%) already showed geometry share is not enough — this is the real hang lever.
+### Unique-CG + jump stats (q8 hang list, `DENDRO_UNZIP_GATHER_STATS=1`)
+
+`n=4337` hang elements: **unique_cg = 343 = nPe** → compress **1.00×** (dedupe dead).
+
+Adjacent CG-id jumps (c106-029):
+
+| order | mean Σ\|Δid\| |
+|-------|-------------:|
+| lex (current gather) | ~3.41e6 |
+| sorted by cg_id | ~1.58e5 |
+| **sort_jump_ratio** | **0.046** (~22× tighter) |
+
+**Sort-by-cg_id gather A/B (q8/4GPU, `TIME_END=0.5`, c106-029):**
+
+| mode | ETS (s) |
+|------|--------:|
+| baseline | **2.180** |
+| `DENDRO_UNZIP_SORT_GATHER=1` | 3.889 (**+78%**) |
+
+**NO-GO.** Odd-even sort in-CTA dominates; clustering signal does not pay off at nPe=343. Keep behind env; do not enable. Next: CG-driven scatter or park unzip micro-opts.
+
+Raw: `tier0/tier2_gather_jump_c106.out`, `tier0/tier2_sort_gather_ab.log`.
