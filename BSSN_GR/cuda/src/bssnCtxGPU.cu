@@ -7,6 +7,7 @@
  * @copyright Copyright (c) 2022
  *
  */
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <limits>
@@ -1188,6 +1189,75 @@ int BSSNCtxGPU::rhs(DVec* in, DVec* out, unsigned int sz, DendroScalar time) {
     this->unzip(*in, m_dptr_uz_i, BSSN_ASYNC_COMM_K);
 
     unsigned int nblocks = m_uiMesh->getLocalBlockList().size();
+
+    // Tier 3.1 #3: one-shot dump of an interior unzipped gauge block for TL vs FD.
+    // Env: DENDRO_DUMP_TL_GAUGE=<path.bin>
+    // Note: m_mesh_cpu.m_blk_list is device memory — use host ot::Block list.
+    if (const char* dump_path = std::getenv("DENDRO_DUMP_TL_GAUGE")) {
+        static bool dumped = false;
+        const std::vector<ot::Block>& blkList = m_uiMesh->getLocalBlockList();
+        if (!dumped && !blkList.empty()) {
+            dumped = true;
+            int bid = -1;
+            for (unsigned int b = 0; b < blkList.size(); ++b) {
+                if (blkList[b].getBlkNodeFlag() == 0) {
+                    bid = static_cast<int>(b);
+                    break;
+                }
+            }
+            if (bid < 0) bid = 0;
+            const ot::Block& blk = blkList[static_cast<unsigned int>(bid)];
+            const unsigned int nx = blk.getAllocationSzX();
+            const unsigned int ny = blk.getAllocationSzY();
+            const unsigned int nz = blk.getAllocationSzZ();
+            const unsigned int n  = nx * ny * nz;
+            const unsigned int off = blk.getOffset();
+            const Point pt_min(bssn::BSSN_COMPD_MIN[0], bssn::BSSN_COMPD_MIN[1],
+                               bssn::BSSN_COMPD_MIN[2]);
+            const Point pt_max(bssn::BSSN_COMPD_MAX[0], bssn::BSSN_COMPD_MAX[1],
+                               bssn::BSSN_COMPD_MAX[2]);
+            const double dx = blk.computeDx(pt_min, pt_max);
+            std::vector<double> h_uz(5u * n);
+            GPUDevice::device_synchronize();
+            auto copy_var = [&](unsigned int var, unsigned int slot) {
+                GPUDevice::device_to_host(
+                    h_uz.data() + slot * n,
+                    m_dptr_uz_i.get_vec_ptr() + var * unzip_sz + off, n);
+            };
+            copy_var(bssn::VAR::U_ALPHA, 0);
+            copy_var(bssn::VAR::U_K, 1);
+            copy_var(bssn::VAR::U_BETA0, 2);
+            copy_var(bssn::VAR::U_BETA1, 3);
+            copy_var(bssn::VAR::U_BETA2, 4);
+            FILE* f = std::fopen(dump_path, "wb");
+            if (f) {
+                const char magic[4] = {'T', 'L', 'G', '1'};
+                const double ko = KO_DISS_SIGMA;
+                const double lam0 = static_cast<double>(BSSN_LAMBDA[0]);
+                const unsigned int bflag = blk.getBlkNodeFlag();
+                const unsigned int ubid = static_cast<unsigned int>(bid);
+                std::fwrite(magic, 1, 4, f);
+                std::fwrite(&nx, sizeof(nx), 1, f);
+                std::fwrite(&ny, sizeof(ny), 1, f);
+                std::fwrite(&nz, sizeof(nz), 1, f);
+                std::fwrite(&dx, sizeof(dx), 1, f);
+                std::fwrite(&ko, sizeof(ko), 1, f);
+                std::fwrite(&lam0, sizeof(lam0), 1, f);
+                std::fwrite(&ubid, sizeof(ubid), 1, f);
+                std::fwrite(&bflag, sizeof(bflag), 1, f);
+                std::fwrite(h_uz.data(), sizeof(double), 5u * n, f);
+                std::fclose(f);
+                std::printf(
+                    "DENDRO_DUMP_TL_GAUGE wrote %s blk=%u bflag=%u nx=%u "
+                    "dx=%.6e ko=%.3g lam0=%.3g\n",
+                    dump_path, ubid, bflag, nx, dx, ko, lam0);
+            } else {
+                std::printf("DENDRO_DUMP_TL_GAUGE open failed: %s\n",
+                            dump_path);
+            }
+        }
+    }
+
 #ifdef __PROFILE_CTX__
     m_uiCtxpt[ts::CTXPROFILE::RHS].start();
 #endif

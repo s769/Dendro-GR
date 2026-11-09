@@ -8,12 +8,12 @@ source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
 LOG="${HOME}/Dendro-GR-notes/tier0/next_gpu_task.log"
 echo "host $(hostname) $(date -Is) next_gpu_task" | tee -a "${LOG}"
 
-BIN_TL="${DENDRO_BUILD}/BSSN_GR/tl_gauge_device_test"
-if [[ -x "${BIN_TL}" ]]; then
-  echo "==== tl_gauge_device_test ====" | tee -a "${LOG}"
-  "${BIN_TL}" 1e-6 | tee -a "${LOG}"
-  "${BIN_TL}" 1e-7 | tee -a "${LOG}"
-  echo TIER31_DEVICE_TL_DONE | tee -a "${LOG}"
+# Queue #4: hang-path NCU occupancy on __unzip_cg1__2
+if [[ -x "${HOME}/Dendro-GR-notes/run_tier2_ncu_hang.sh" ]]; then
+  echo "==== queue#4 tier2_ncu_hang ====" | tee -a "${LOG}"
+  bash "${HOME}/Dendro-GR-notes/run_tier2_ncu_hang.sh" | tee -a "${LOG}"
+  echo TIER2_NCU_HANG_QUEUE_DONE | tee -a "${LOG}"
 else
-  echo "tl_gauge_device_test missing — build on login first" | tee -a "${LOG}"
+  echo "run_tier2_ncu_hang.sh missing" | tee -a "${LOG}"
+  exit 1
 fi
