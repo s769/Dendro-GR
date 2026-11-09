@@ -18,4 +18,9 @@ Not re-measured yet under CUDA-aware + PT_ASYNC on Horizon. Unzip/list-infra too
 2. Only if spills or reg pressure show headroom: regenerate staged algebra from SymPy (`CodeGen/bssn_manually_staged.py` / `bssn.py --staged_type staged`) behind an env flag.
 3. A/B ETS + bit-id vs unstaged.
 
-Until NCU says otherwise, treat 2.1 as **low priority** vs hang-path unzip / 2-node scale / TL (3.1).
+**Superseded by `BATCHING.md`:** staged algebra is now **first** in the bankable-batching order (regs must drop before K/CTA interleave). Unzip/list no-gos are parked; TL gauge harnesses are largely done.
+
+## Current
+
+- Script: `run_tier21_ncu_rhs.sh` → `tier0/tier21_ncu_rhs.log` + `rhs_pt_async_occ.ncu-rep`
+- Gate: if spills>0 or regs leave no room for K≥4 interleave → stage; if already lean, skip regen and go to B2 K/CTA curve.

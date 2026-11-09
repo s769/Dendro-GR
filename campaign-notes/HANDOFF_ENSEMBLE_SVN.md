@@ -47,7 +47,11 @@ Exit criterion: a go/no-go on GPU LTS with a scoped plan. If no-go, say so and w
 
 ## What to stop doing
 
-FP32 variants beyond keeping PT_F32SU compiling and running its existing smoke. Tensor-core experiments. Further `launch_bounds` sweeps on the stock kernel.
+FP32 variants beyond keeping PT_F32SU compiling and running its existing smoke. Tensor-core experiments on the *nonlinear* RHS. Further `launch_bounds` sweeps on the stock kernel. POD/DEIM of the tangent. Selling FP64 TLM GEMM as an acceleration (exactness only — see `BATCHING.md`).
+
+## Batching order (bankable)
+
+1. 2.1 staged algebra (regs) → 2. K/CTA FP64 interleave speedup curve → 3. pack ghosts/launches → 4. FP32-tangent plateau (later). Details: `BATCHING.md`.
 
 ## Reporting
 
