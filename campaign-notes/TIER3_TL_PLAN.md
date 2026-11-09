@@ -42,11 +42,11 @@ Differentiated BSSN RHS: given background state `u` and K tangent vectors `v[k]`
 - **Codegen scaffold PASS:** `CodeGen/bssn_tl_gauge.py` — symbolic TL of α/β⁰/B⁰/χ matches harness closed forms (7/7). Emit: `bssn_tl_gauge.inc.cuh`.
 - **Harness v6 PASS:** `tl_chi_test` — χ TL vs FD (δχ, δα, δK), eps 1e-6/1e-7 on c106 (`tier0/tier31_chi.log`).
 - **Codegen 10/10 PASS** incl. gt00 (δα, δAt00, weighted-Lie δgt00).
-- **Harness v7 PASS:** `tl_gt_test` — gt00 TL vs FD, eps 1e-6/1e-7 on c106 (`tier0/tier31_gt.log`).
+- **Harness v7 PASS:** `tl_gt_test` — gt00 full Lie TL vs FD (δgt0, δgt1 cross, δα, δAt0), eps 1e-6/1e-7 on c106 (`tier0/tier31_gt.log`). SymPy 11/11.
 - **Tier 3.2 PASS:** maxdepth Richardson q4 — see `TIER32_RICHARDSON.md`.
 
 ### Next coding slice
 
-1. ~~… gauge / χ / gt00 scaffold~~ **done through harness v7**.
-2. Full tensor Lie for `gt` (γ_ik ∂_j β^k terms) + At/K/Gt TL emit.
+1. ~~gauge / χ / gt00 full Lie~~ **done**.
+2. At/K/Gt TL codegen + device gates; then fused emit.
 3. Tier 3.3 hybridization-length (orbits) knob.

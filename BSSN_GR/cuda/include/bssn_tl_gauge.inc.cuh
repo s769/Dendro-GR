@@ -26,7 +26,10 @@ namespace device { namespace tl { namespace gauge_codegen {
 // Jchi_dK = 2*alpha[pp]*chi[pp]*v_K[pp]/3;
 
 // ---- Jgt_dgt0 ----
-// Jgt_dgt0 = beta0[pp]*grad_0_v_gt0 + beta1[pp]*grad_1_v_gt0 + beta2[pp]*grad_2_v_gt0 + ko_sigma*(kograd_0_v_gt0 + kograd_1_v_gt0 + kograd_2_v_gt0) - 2*v_gt0[pp]*(grad_0_beta0 + grad_1_beta1 + grad_2_beta2)/3;
+// Jgt_dgt0 = beta0[pp]*grad_0_v_gt0 + beta1[pp]*grad_1_v_gt0 + beta2[pp]*grad_2_v_gt0 + 2*grad_0_beta0*v_gt0[pp] + ko_sigma*(kograd_0_v_gt0 + kograd_1_v_gt0 + kograd_2_v_gt0) - 2*v_gt0[pp]*(grad_0_beta0 + grad_1_beta1 + grad_2_beta2)/3;
+
+// ---- Jgt_dgt1 ----
+// Jgt_dgt1 = 2*grad_0_beta1*v_gt1[pp];
 
 // ---- Jgt_dalpha ----
 // Jgt_dalpha = -2*At0[pp]*v_alpha[pp];

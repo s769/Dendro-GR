@@ -78,13 +78,19 @@ def build_gauge_rhs():
         + _ko_sum("chi", ko_sigma)
     )
 
-    # gt00 scaffold: weighted advection + (−2 α At00). Full tensor Lie
-    # (gt_ik ∂_j β^k + …) deferred — δα / δAt00 gates are exact; δgt00 is
-    # the scalar-weight piece used by tl_gt_test until full Lie emit lands.
+    # gt00: full Lie (weight −2/3) + (−2 α At00) + KO.
+    # Dendro: gt0=γ00, gt1=γ01, gt2=γ02.
+    # L_β γ00 = β·∇γ00 + 2 γ0k ∂0 β^k + w γ00 ∂k β^k
     gt0 = Symbol("gt0[pp]")
+    gt1 = Symbol("gt1[pp]")
+    gt2 = Symbol("gt2[pp]")
     At0 = Symbol("At0[pp]")
+    lie_extra = 2 * (
+        gt0 * _grad(0, "beta0") + gt1 * _grad(0, "beta1") + gt2 * _grad(0, "beta2")
+    )
     gt_rhs0 = (
         _adv(beta, "gt0")
+        + lie_extra
         + weight * gt0 * sum(_grad(i, f"beta{i}") for i in range(3))
         - 2 * alpha * At0
         + _ko_sum("gt0", ko_sigma)
@@ -111,6 +117,8 @@ def build_gauge_rhs():
             "Gt_rhs": Gt_rhs,
             "chi": chi,
             "gt0": gt0,
+            "gt1": gt1,
+            "gt2": gt2,
             "At0": At0,
         },
     }
@@ -207,13 +215,16 @@ def expected_closed_forms(S):
 
     gt0, At0 = S["gt0"], S["At0"]
     v_gt0 = Symbol("v_gt0[pp]")
+    v_gt1 = Symbol("v_gt1[pp]")
     v_At0 = Symbol("v_At0[pp]")
     weight = Rational(-2, 3)
     Jgt_dgt0 = (
         _adv(beta, "v_gt0")
+        + 2 * v_gt0 * _grad(0, "beta0")
         + weight * v_gt0 * sum(_grad(i, f"beta{i}") for i in range(3))
         + _ko_sum("v_gt0", ko_sigma)
     )
+    Jgt_dgt1 = 2 * v_gt1 * _grad(0, "beta1")
     Jgt_dalpha = -2 * At0 * v_alpha
     Jgt_dAt0 = -2 * alpha * v_At0
 
@@ -226,6 +237,7 @@ def expected_closed_forms(S):
         "chi_rhs_dalpha": Jchi_dalpha,
         "chi_rhs_dK": Jchi_dK,
         "gt_rhs0_dgt0": Jgt_dgt0,
+        "gt_rhs0_dgt1": Jgt_dgt1,
         "gt_rhs0_dalpha": Jgt_dalpha,
         "gt_rhs0_dAt0": Jgt_dAt0,
     }
@@ -319,6 +331,9 @@ def main():
         ("gt_rhs0 / δgt0", restrict_direction(Jgt, {"gt0"}), expected["gt_rhs0_dgt0"])
     )
     checks.append(
+        ("gt_rhs0 / δgt1", restrict_direction(Jgt, {"gt1"}), expected["gt_rhs0_dgt1"])
+    )
+    checks.append(
         (
             "gt_rhs0 / δalpha",
             restrict_direction(Jgt, {"alpha"}),
@@ -352,6 +367,7 @@ def main():
                 "Jchi_dalpha": expected["chi_rhs_dalpha"],
                 "Jchi_dK": expected["chi_rhs_dK"],
                 "Jgt_dgt0": expected["gt_rhs0_dgt0"],
+                "Jgt_dgt1": expected["gt_rhs0_dgt1"],
                 "Jgt_dalpha": expected["gt_rhs0_dalpha"],
                 "Jgt_dAt0": expected["gt_rhs0_dAt0"],
             },
