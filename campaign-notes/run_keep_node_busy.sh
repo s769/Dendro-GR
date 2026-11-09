@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # Perpetual short ETS jobs until the SLURM alloc dies.
-exec 9>"${HOME}/Dendro-GR-notes/tier0/keep_node_busy.lock"
+exec 9>"${HOME}/Dendro-GR/campaign-notes/tier0/keep_node_busy.lock"
 if ! flock -n 9; then
   echo "$(date -Is) another keep_node_busy holds the lock; exit"
   exit 0
 fi
 set -uo pipefail
-LOG="${HOME}/Dendro-GR-notes/tier0/keep_node_busy.log"
+LOG="${HOME}/Dendro-GR/campaign-notes/tier0/keep_node_busy.log"
 echo "$(date -Is) keep_node_busy start $(hostname)" | tee -a "$LOG"
 if ! command -v module >/dev/null 2>&1; then
   source /opt/apps/lmod/lmod/init/bash 2>/dev/null || true
 fi
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 unset CUDA_VISIBLE_DEVICES
 export OMP_NUM_THREADS=1 UCX_TLS="${UCX_TLS:-rc,sm,cuda_copy,cuda_ipc,gdr_copy}"
 BIN="${DENDRO_BUILD}/BSSN_GR/bssnSolverCUDA"
@@ -47,7 +47,7 @@ PY
   START=$(date +%s)
   mpirun -np 4 env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
     "$BIN" "$OUT/local.par.toml" 1 \
-    > "${HOME}/Dendro-GR-notes/tier0/keep_${TAG}_${n}.log" 2>&1 || true
-  ETS=$(grep -E 'ETS time \(max\)' "${HOME}/Dendro-GR-notes/tier0/keep_${TAG}_${n}.log" | sed 's/\x1b\[[0-9;]*m//g' | tail -1 | awk '{print $NF}' || true)
+    > "${HOME}/Dendro-GR/campaign-notes/tier0/keep_${TAG}_${n}.log" 2>&1 || true
+  ETS=$(grep -E 'ETS time \(max\)' "${HOME}/Dendro-GR/campaign-notes/tier0/keep_${TAG}_${n}.log" | sed 's/\x1b\[[0-9;]*m//g' | tail -1 | awk '{print $NF}' || true)
   echo "tag=${TAG} n=${n} wall=$(( $(date +%s)-START )) ets=${ETS:-NA}" | tee -a "$LOG"
 done

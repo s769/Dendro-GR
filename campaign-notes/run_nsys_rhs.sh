@@ -8,7 +8,7 @@ export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
 export PATH=/home1/apps/nvidia/Linux_aarch64/26.9/compilers/bin:$PATH
 NSYS=$(command -v nsys)
 BIN=$HOME/Dendro-GR-build/BSSN_GR
-OUT=$HOME/Dendro-GR-notes/nsys
+OUT=$HOME/Dendro-GR/campaign-notes/nsys
 mkdir -p "$OUT"
 TAG=${1:-ptasync}
 MODE=${2:-ptasync}   # stock|ptasync|ptdb|pt

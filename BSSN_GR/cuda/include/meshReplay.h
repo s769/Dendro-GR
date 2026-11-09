@@ -40,6 +40,13 @@ int apply_due_flags(ot::Mesh* mesh);
 int record_oct_snapshot(const ot::Mesh* mesh, DendroIntL step,
                         DendroScalar time);
 
+/** Init-grid-converge refinement iterations (keyed as step = -iter, iter>=1).
+ *  Record: call right after isReMeshWAMR flagged the mesh, before remesh().
+ *  Replay: returns 0 and sets flags if iteration @p iter was recorded
+ *  (caller then remeshes), nonzero if none (caller stops refining). */
+int record_init_flags(ot::Mesh* mesh, unsigned int iter);
+int apply_init_flags(ot::Mesh* mesh, unsigned int iter);
+
 std::size_t remaining();
 
 }  // namespace mesh_replay

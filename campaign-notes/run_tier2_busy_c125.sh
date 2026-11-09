@@ -4,7 +4,7 @@ set -euo pipefail
 if ! command -v module >/dev/null 2>&1; then
   source /opt/apps/lmod/lmod/init/bash 2>/dev/null || true
 fi
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 unset CUDA_VISIBLE_DEVICES
 export OMP_NUM_THREADS=1
 export UCX_TLS="${UCX_TLS:-rc,sm,cuda_copy,cuda_ipc,gdr_copy}"
@@ -14,7 +14,7 @@ export DENDRO_UNZIP_BATCH_SYNC=0
 BIN="${DENDRO_BUILD}/BSSN_GR/bssnSolverCUDA"
 PAR0="${HOME}/Dendro-GR-runs/q8.meshprobe.par.toml"
 SOL="${HOME}/Dendro-GR-runs/q8_hist_4gpu/mesh_q8_tpid_sol.bin"
-LOGDIR="${HOME}/Dendro-GR-notes/tier0"
+LOGDIR="${HOME}/Dendro-GR/campaign-notes/tier0"
 SUMMARY="${LOGDIR}/tier2_busy_c125.log"
 mkdir -p "${LOGDIR}"
 echo "host $(hostname) $(date -Is) busy_pipeline" | tee "${SUMMARY}"

@@ -5,7 +5,7 @@ if ! command -v module >/dev/null 2>&1; then
   source /etc/profile 2>/dev/null || true
   source /opt/apps/lmod/lmod/init/bash 2>/dev/null || true
 fi
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 unset CUDA_VISIBLE_DEVICES
 export OMP_NUM_THREADS=1
 export UCX_TLS="${UCX_TLS:-rc,sm,cuda_copy,cuda_ipc,gdr_copy}"
@@ -14,7 +14,7 @@ BIN="${DENDRO_BUILD}/BSSN_GR/bssnSolverCUDA"
 PAR0="${HOME}/Dendro-GR-runs/q8.meshprobe.par.toml"
 SOL="${HOME}/Dendro-GR-runs/q8_hist_4gpu/mesh_q8_tpid_sol.bin"
 BASE="${HOME}/Dendro-GR-runs/q8_scale_cudaaware"
-LOGDIR="${HOME}/Dendro-GR-notes/tier0"
+LOGDIR="${HOME}/Dendro-GR/campaign-notes/tier0"
 SUMMARY="${LOGDIR}/tier25_scale_q8_cudaaware.log"
 mkdir -p "${BASE}" "${LOGDIR}"
 : > "${SUMMARY}"
@@ -49,10 +49,10 @@ PY
   echo "np=${NP} wall_sec=${WALL} ets=${ETS:-NA}" | tee -a "${SUMMARY}"
 done
 
-python3 - <<'PY' | tee -a /home1/08435/srvenkat/Dendro-GR-notes/tier0/tier25_scale_q8_cudaaware.log
+python3 - <<'PY' | tee -a /home1/08435/srvenkat/Dendro-GR/campaign-notes/tier0/tier25_scale_q8_cudaaware.log
 import re
 from pathlib import Path
-text=Path('/home1/08435/srvenkat/Dendro-GR-notes/tier0/tier25_scale_q8_cudaaware.log').read_text()
+text=Path('/home1/08435/srvenkat/Dendro-GR/campaign-notes/tier0/tier25_scale_q8_cudaaware.log').read_text()
 rows={}
 for m in re.finditer(r'np=(\d+) wall_sec=(\d+|NA) ets=([0-9.eE+-]+|NA)', text):
     rows[int(m.group(1))]=(m.group(2), None if m.group(3)=='NA' else float(m.group(3)))

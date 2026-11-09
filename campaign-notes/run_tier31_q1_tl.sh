@@ -4,7 +4,7 @@ set -euo pipefail
 if ! command -v module >/dev/null 2>&1; then
   source /opt/apps/lmod/lmod/init/bash 2>/dev/null || true
 fi
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 
 BIN="${DENDRO_BUILD}/BSSN_GR/bssnSolverCUDA"
 TEST="${DENDRO_BUILD}/BSSN_GR/tl_gauge_q1_test"
@@ -13,7 +13,7 @@ TPID="${HOME}/Dendro-GR-runs/tpid_work/rit_q1_tpid_sol.bin"
 REC="${HOME}/Dendro-GR-runs/tier14/mesh_rec"
 OUT="${HOME}/Dendro-GR-runs/tier31_q1_tl"
 DUMP="${OUT}/tl_gauge_blk.bin"
-LOG="${HOME}/Dendro-GR-notes/tier0/tier31_q1_tl.log"
+LOG="${HOME}/Dendro-GR/campaign-notes/tier0/tier31_q1_tl.log"
 
 mkdir -p "${OUT}"/{aeh,cp,dat,vtu}
 cp "${PAR0}" "${OUT}/local.par.toml"

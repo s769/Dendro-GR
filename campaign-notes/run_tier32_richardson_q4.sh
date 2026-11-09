@@ -5,7 +5,7 @@ set -euo pipefail
 if ! command -v module >/dev/null 2>&1; then
   source /opt/apps/lmod/lmod/init/bash 2>/dev/null || true
 fi
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 unset CUDA_VISIBLE_DEVICES
 export OMP_NUM_THREADS=1
 
@@ -13,7 +13,7 @@ BIN="${DENDRO_BUILD}/BSSN_GR/bssnSolverCUDA"
 PAR0="${HOME}/Dendro-GR-runs/q4.meshprobe.par.toml"
 SOL="${HOME}/Dendro-GR-runs/tpid_tier12/q4_a/mesh_q4_a_tpid_sol.bin"
 OUT="${HOME}/Dendro-GR-runs/tier32_richardson_q4"
-LOG="${HOME}/Dendro-GR-notes/tier0/tier32_richardson_q4.log"
+LOG="${HOME}/Dendro-GR/campaign-notes/tier0/tier32_richardson_q4.log"
 PREFIX=$(grep '^TPID_FILEPREFIX' "${PAR0}" | sed 's/.*= *"\([^"]*\)".*/\1/')
 COARSE_DEPTH=13
 FINE_DEPTH=14

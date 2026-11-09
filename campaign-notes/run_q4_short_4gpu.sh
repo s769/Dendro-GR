@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Short q4 evolve on 4 GPUs for wall-time / constraint sample (Tier 2.4 lite).
 set -euo pipefail
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 export OMP_NUM_THREADS=1
 BIN="${DENDRO_BUILD}/BSSN_GR/bssnSolverCUDA"
 PAR0="${HOME}/Dendro-GR-runs/q4.meshprobe.par.toml"
 TPID_DIR="${HOME}/Dendro-GR-runs/tpid_tier12/q4_a"
 OUT="${HOME}/Dendro-GR-runs/q4_short_4gpu"
-LOG="${HOME}/Dendro-GR-notes/tier0/q4_short_4gpu.log"
+LOG="${HOME}/Dendro-GR/campaign-notes/tier0/q4_short_4gpu.log"
 rm -rf "${OUT}"
 mkdir -p "${OUT}"/{aeh,cp,dat,vtu}
 

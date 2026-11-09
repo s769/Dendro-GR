@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Resume dual-res FD after interrupt: finish missing fine_{p,m} then print FD table.
 set -euo pipefail
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}" OMP_NUM_THREADS=1
 BIN="${DENDRO_BUILD}/BSSN_GR/bssnSolverCUDA"
 TPID="${HOME}/Dendro-GR-runs/tpid_work/rit_q1_tpid_sol.bin"

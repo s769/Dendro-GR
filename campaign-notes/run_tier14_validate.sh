@@ -2,7 +2,7 @@
 # On a compute node: rebuild + dual-run bit-id smoke after min-det fix,
 # plus non-fiducial mesh replay check (perturbed bare mass on frozen mesh).
 set -euo pipefail
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 cmake --build "${DENDRO_BUILD}" -j16 --target bssnSolverCUDA 2>&1 | tail -30
 
 BIN="${DENDRO_BUILD}/BSSN_GR/bssnSolverCUDA"

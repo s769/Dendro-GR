@@ -3,7 +3,7 @@ set -euo pipefail
 if ! command -v module >/dev/null 2>&1; then
   source /opt/apps/lmod/lmod/init/bash 2>/dev/null || true
 fi
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 unset CUDA_VISIBLE_DEVICES
 export OMP_NUM_THREADS=1
 export UCX_TLS="${UCX_TLS:-rc,sm,cuda_copy,cuda_ipc,gdr_copy}"
@@ -11,7 +11,7 @@ BIN="${DENDRO_BUILD}/BSSN_GR/bssnSolverCUDA"
 PAR0="${HOME}/Dendro-GR-runs/q8.meshprobe.par.toml"
 SOL="${HOME}/Dendro-GR-runs/q8_hist_4gpu/mesh_q8_tpid_sol.bin"
 BASE="${HOME}/Dendro-GR-runs/q8_unzip_batchsync_long"
-LOGDIR="${HOME}/Dendro-GR-notes/tier0"
+LOGDIR="${HOME}/Dendro-GR/campaign-notes/tier0"
 SUMMARY="${LOGDIR}/tier2_unzip_batchsync_long.log"
 mkdir -p "${BASE}" "${LOGDIR}"; : > "${SUMMARY}"
 echo "host $(hostname) $(date -Is) batchsync_long TIME_END=1.0" | tee -a "${SUMMARY}"

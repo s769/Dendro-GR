@@ -3,11 +3,11 @@
 # Uses existing TPID sol (ID inconsistent by design for this knob check only).
 set -euo pipefail
 source /opt/apps/lmod/lmod/init/bash 2>/dev/null || true
-source /home1/08435/srvenkat/Dendro-GR-notes/env_build_horizon.sh
+source /home1/08435/srvenkat/Dendro-GR/campaign-notes/env_build_horizon.sh
 unset CUDA_VISIBLE_DEVICES
 export OMP_NUM_THREADS=1
 
-LOG="${HOME}/Dendro-GR-notes/tier0/tier33_target_orbits_smoke.log"
+LOG="${HOME}/Dendro-GR/campaign-notes/tier0/tier33_target_orbits_smoke.log"
 OUT="${HOME}/Dendro-GR-runs/tier33_target_orbits_smoke"
 BIN="${DENDRO_BUILD}/BSSN_GR/bssnSolverCUDA"
 PAR0="${HOME}/Dendro-GR-runs/q1.smoke_cons.par.toml"

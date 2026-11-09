@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source /opt/apps/lmod/lmod/init/bash 2>/dev/null || true
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 unset CUDA_VISIBLE_DEVICES
 export OMP_NUM_THREADS=1
 BIN="${DENDRO_BUILD}/BSSN_GR/bssnSolverCUDA"
 PAR0="${HOME}/Dendro-GR-runs/q8.meshprobe.par.toml"
 SOL="${HOME}/Dendro-GR-runs/q8_hist_4gpu/mesh_q8_tpid_sol.bin"
 OUT="${HOME}/Dendro-GR-runs/tier21_f32su_lb1"
-LOG="${HOME}/Dendro-GR-notes/tier0/tier21_f32su_lb1.log"
+LOG="${HOME}/Dendro-GR/campaign-notes/tier0/tier21_f32su_lb1.log"
 PREFIX=$(grep '^TPID_FILEPREFIX' "${PAR0}" | sed 's/.*= *"\([^"]*\)".*/\1/')
 rm -rf "${OUT}"; mkdir -p "${OUT}"
 echo "host $(hostname) $(date -Is) f32su_lb1" | tee "${LOG}"

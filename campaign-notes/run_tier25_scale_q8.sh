@@ -6,7 +6,7 @@ if ! command -v module >/dev/null 2>&1; then
   source /etc/profile 2>/dev/null || true
   source /opt/apps/lmod/lmod/init/bash 2>/dev/null || true
 fi
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 # env_build pins CUDA_VISIBLE_DEVICES=0 — clear so ranks can see all GPUs.
 unset CUDA_VISIBLE_DEVICES
 export OMP_NUM_THREADS=1
@@ -14,7 +14,7 @@ BIN="${DENDRO_BUILD}/BSSN_GR/bssnSolverCUDA"
 TPID_BIN="${DENDRO_BUILD}/BSSN_GR/tpid"
 PAR0="${HOME}/Dendro-GR-runs/q8.meshprobe.par.toml"
 BASE="${HOME}/Dendro-GR-runs/q8_scale"
-LOGDIR="${HOME}/Dendro-GR-notes/tier0"
+LOGDIR="${HOME}/Dendro-GR/campaign-notes/tier0"
 SUMMARY="${LOGDIR}/tier25_scale_q8.log"
 mkdir -p "${BASE}" "${LOGDIR}"
 : > "${SUMMARY}"
@@ -75,10 +75,10 @@ PY
 done
 
 # Parallel efficiency vs 1 GPU (ETS).
-python3 - <<'PY' | tee -a /home1/08435/srvenkat/Dendro-GR-notes/tier0/tier25_scale_q8.log
+python3 - <<'PY' | tee -a /home1/08435/srvenkat/Dendro-GR/campaign-notes/tier0/tier25_scale_q8.log
 import re
 from pathlib import Path
-text=Path('/home1/08435/srvenkat/Dendro-GR-notes/tier0/tier25_scale_q8.log').read_text()
+text=Path('/home1/08435/srvenkat/Dendro-GR/campaign-notes/tier0/tier25_scale_q8.log').read_text()
 rows={}
 for m in re.finditer(r'np=(\d+) wall_sec=(\d+) ets=([0-9.eE+-]+|NA)', text):
     np, wall, ets = int(m.group(1)), int(m.group(2)), m.group(3)

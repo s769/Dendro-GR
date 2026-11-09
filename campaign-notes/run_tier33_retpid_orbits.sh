@@ -2,14 +2,14 @@
 # Tier 3.3: re-solve TPID for each BSSN_TARGET_ORBITS N (q1 equal-mass).
 set -euo pipefail
 source /opt/apps/lmod/lmod/init/bash 2>/dev/null || true
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 unset CUDA_VISIBLE_DEVICES
 export OMP_NUM_THREADS=1
 
 TPID="${DENDRO_BUILD}/BSSN_GR/tpid"
 PAR0="${HOME}/Dendro-GR-runs/q1.smoke_cons.par.toml"
 OUT="${HOME}/Dendro-GR-runs/tpid_tier33_orbits"
-LOG="${HOME}/Dendro-GR-notes/tier0/tier33_retpid_orbits.log"
+LOG="${HOME}/Dendro-GR/campaign-notes/tier0/tier33_retpid_orbits.log"
 NS="${*:-3.0 5.0 8.0}"
 
 mkdir -p "${OUT}" "$(dirname "${LOG}")"

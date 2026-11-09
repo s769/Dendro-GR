@@ -2,10 +2,10 @@
 # B1 CSE christoffel A/B: rhsgpu_test bit-id+time, then short q8 ETS vs ASYNC.
 set -euo pipefail
 source /opt/apps/lmod/lmod/init/bash 2>/dev/null || true
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 unset CUDA_VISIBLE_DEVICES
 export OMP_NUM_THREADS=1
-LOG="${HOME}/Dendro-GR-notes/tier0/tier21_cse_ab.log"
+LOG="${HOME}/Dendro-GR/campaign-notes/tier0/tier21_cse_ab.log"
 echo "host $(hostname) $(date -Is) cse_ab" | tee "${LOG}"
 
 echo "==== build rhsgpu_test ====" | tee -a "${LOG}"

@@ -10,9 +10,9 @@ for i in $(seq 1 120); do
 done
 # Wait until retpid script finished writing N8 wall line (avoid racing tpid)
 for i in $(seq 1 60); do
-  if grep -q 'N8 wall=' /home1/08435/srvenkat/Dendro-GR-notes/tier0/tier33_retpid_orbits.log 2>/dev/null; then
+  if grep -q 'N8 wall=' /home1/08435/srvenkat/Dendro-GR/campaign-notes/tier0/tier33_retpid_orbits.log 2>/dev/null; then
     break
   fi
   sleep 5
 done
-bash /home1/08435/srvenkat/Dendro-GR-notes/run_tier33_cost_orbits.sh N3 N5 N8
+bash /home1/08435/srvenkat/Dendro-GR/campaign-notes/run_tier33_cost_orbits.sh N3 N5 N8

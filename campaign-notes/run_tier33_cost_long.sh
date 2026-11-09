@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source /opt/apps/lmod/lmod/init/bash 2>/dev/null || true
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 unset CUDA_VISIBLE_DEVICES
 export OMP_NUM_THREADS=1
 BIN="${DENDRO_BUILD}/BSSN_GR/bssnSolverCUDA"
 PAR0="${HOME}/Dendro-GR-runs/q1.smoke_cons.par.toml"
-LOG="${HOME}/Dendro-GR-notes/tier0/tier33_cost_long.log"
+LOG="${HOME}/Dendro-GR/campaign-notes/tier0/tier33_cost_long.log"
 TEND="${TEND:-1.0}"
 echo "host $(hostname) $(date -Is) cost_long TEND=${TEND}" | tee "${LOG}"
 for tag in N3 N8; do

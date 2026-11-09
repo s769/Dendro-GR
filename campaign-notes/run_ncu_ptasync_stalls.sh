@@ -7,7 +7,7 @@ export LD_LIBRARY_PATH=$GSL_ROOT_DIR/lib:${LD_LIBRARY_PATH:-}
 export PATH=/home1/apps/nvidia/Linux_aarch64/26.9/compilers/bin:$PATH
 export OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
 BIN=$HOME/Dendro-GR-build/BSSN_GR
-OUT=$HOME/Dendro-GR-notes/ncu
+OUT=$HOME/Dendro-GR/campaign-notes/ncu
 mkdir -p "$OUT"
 cd "$BIN"
 ncu --section LaunchStats --section Occupancy \

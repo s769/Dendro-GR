@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source /opt/apps/lmod/lmod/init/bash 2>/dev/null || true
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 unset CUDA_VISIBLE_DEVICES
 export OMP_NUM_THREADS=1
-LOG="${HOME}/Dendro-GR-notes/tier0/tier21_lb1_ab.log"
+LOG="${HOME}/Dendro-GR/campaign-notes/tier0/tier21_lb1_ab.log"
 echo "==== confirm2 $(date -Is) ====" | tee -a "${LOG}"
 cd "${HOME}/Dendro-GR-runs/tier21_lb1_ab/ASYNC"
 START=$(date +%s)

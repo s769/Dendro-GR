@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Horizon GB200 build environment for Dendro-GR
-# Usage: source ~/Dendro-GR-notes/env_build_horizon.sh
+# Usage: source ~/Dendro-GR/campaign-notes/env_build_horizon.sh
 set -euo pipefail
 module purge
 module load cmake/4.4.0 gcc/15.3.0 cuda/13.2 ucc/1.9.0 openmpi/5.0.11

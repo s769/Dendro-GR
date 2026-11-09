@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # q8 block-level hist on 4 GPUs (Tier 0.2 refresh / Tier 2.4 companion to q4).
 set -euo pipefail
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 export OMP_NUM_THREADS=1
 BIN="${DENDRO_BUILD}/BSSN_GR/bssnSolverCUDA"
 TPID_BIN="${DENDRO_BUILD}/BSSN_GR/tpid"
 PAR0="${HOME}/Dendro-GR-runs/q8.meshprobe.par.toml"
 OUT="${HOME}/Dendro-GR-runs/q8_hist_4gpu"
-LOG="${HOME}/Dendro-GR-notes/tier0/q8_hist_4gpu.log"
+LOG="${HOME}/Dendro-GR/campaign-notes/tier0/q8_hist_4gpu.log"
 rm -rf "${OUT}"
 mkdir -p "${OUT}"/{aeh,cp,dat,vtu}
 

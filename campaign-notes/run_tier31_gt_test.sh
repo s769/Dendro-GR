@@ -3,8 +3,8 @@ set -euo pipefail
 if ! command -v module >/dev/null 2>&1; then
   source /opt/apps/lmod/lmod/init/bash 2>/dev/null || true
 fi
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
-LOG="${HOME}/Dendro-GR-notes/tier0/tier31_gt.log"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
+LOG="${HOME}/Dendro-GR/campaign-notes/tier0/tier31_gt.log"
 BIN="${DENDRO_BUILD}/BSSN_GR/tl_gt_test"
 echo "host $(hostname) $(date -Is) tier31_gt" | tee "${LOG}"
 [[ -x "${BIN}" ]] || { echo "missing ${BIN}"; exit 1; }

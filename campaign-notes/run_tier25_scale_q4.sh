@@ -5,14 +5,14 @@ if ! command -v module >/dev/null 2>&1; then
   source /etc/profile 2>/dev/null || true
   source /opt/apps/lmod/lmod/init/bash 2>/dev/null || true
 fi
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 unset CUDA_VISIBLE_DEVICES
 export OMP_NUM_THREADS=1
 
 BIN="${DENDRO_BUILD}/BSSN_GR/bssnSolverCUDA"
 PAR0="${HOME}/Dendro-GR-runs/q4.meshprobe.par.toml"
 BASE="${HOME}/Dendro-GR-runs/q4_scale"
-LOGDIR="${HOME}/Dendro-GR-notes/tier0"
+LOGDIR="${HOME}/Dendro-GR/campaign-notes/tier0"
 SUMMARY="${LOGDIR}/tier25_scale_q4.log"
 PREFIX=$(grep '^TPID_FILEPREFIX' "${PAR0}" | sed 's/.*= *"\([^"]*\)".*/\1/')
 SOL_CANDIDATES=(
@@ -63,10 +63,10 @@ PY
   grep -E 'BLK_LEV_HIST|ETS time|npes' "${LOG}" | sed 's/\x1b\[[0-9;]*m//g' | tail -12 | tee -a "${SUMMARY}" || true
 done
 
-python3 - <<'PY' | tee -a /home1/08435/srvenkat/Dendro-GR-notes/tier0/tier25_scale_q4.log
+python3 - <<'PY' | tee -a /home1/08435/srvenkat/Dendro-GR/campaign-notes/tier0/tier25_scale_q4.log
 import re
 from pathlib import Path
-text=Path('/home1/08435/srvenkat/Dendro-GR-notes/tier0/tier25_scale_q4.log').read_text()
+text=Path('/home1/08435/srvenkat/Dendro-GR/campaign-notes/tier0/tier25_scale_q4.log').read_text()
 rows={}
 for m in re.finditer(r'np=(\d+) wall_sec=(\d+|NA) ets=([0-9.eE+-]+|NA)', text):
     np=int(m.group(1)); wall=m.group(2); ets=m.group(3)

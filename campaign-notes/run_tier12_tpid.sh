@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tier 1.2: dual tpid bit-id + unequal-mass bare-mass check
 set -euo pipefail
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 TPID="${DENDRO_BUILD}/BSSN_GR/tpid"
 OUT="${HOME}/Dendro-GR-runs/tpid_tier12"
 rm -rf "${OUT}"

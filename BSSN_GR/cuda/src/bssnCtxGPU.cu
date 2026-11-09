@@ -220,16 +220,22 @@ int BSSNCtxGPU::initialize() {
         m_evar_unz.to_2d(unzipVar);
         // isRefine=this->is_remesh();
         //  enforce WMAR refinement based refinement initially.
-        // Under DENDRO_MESH_REPLAY, skip init WAMR so non-fiducial members
-        // inherit the frozen topology (flags applied later at recorded steps).
-        if (max_iter == 0 ||
-            bssn::mesh_replay::mode() == bssn::mesh_replay::Mode::Replay)
+        // Under DENDRO_MESH_REPLAY, the init-converge refinement iterations
+        // recorded by the fiducial are replayed (no WAMR decisions), so all
+        // ensemble members start on the identical mesh.
+        if (max_iter == 0)
             isRefine = false;
-        else
+        else if (bssn::mesh_replay::mode() ==
+                 bssn::mesh_replay::Mode::Replay)
+            isRefine = (bssn::mesh_replay::apply_init_flags(m_uiMesh,
+                                                            iterCount) == 0);
+        else {
             isRefine =
                 bssn::isReMeshWAMR(m_uiMesh, (const double**)unzipVar,
                                    refineVarIds, bssn::BSSN_NUM_REFINE_VARS,
                                    waveletTolFunc, bssn::BSSN_DENDRO_AMR_FAC);
+            if (isRefine) bssn::mesh_replay::record_init_flags(m_uiMesh, iterCount);
+        }
 
         if (isRefine) {
             ot::Mesh* newMesh =

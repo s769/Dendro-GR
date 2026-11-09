@@ -8,7 +8,7 @@ export CUDA_VISIBLE_DEVICES=0
 export OMP_NUM_THREADS=1
 
 BIN=$HOME/Dendro-GR-build/BSSN_GR
-NOTES=$HOME/Dendro-GR-notes
+NOTES=$HOME/Dendro-GR/campaign-notes
 hostname
 nvidia-smi -L | head -1
 cd "$BIN"

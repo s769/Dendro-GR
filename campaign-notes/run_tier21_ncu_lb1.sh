@@ -2,7 +2,7 @@
 # NCU regs/local-mem on PT_ASYNC after launch_bounds(343,1).
 set -euo pipefail
 source /opt/apps/lmod/lmod/init/bash 2>/dev/null || true
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 unset CUDA_VISIBLE_DEVICES
 export OMP_NUM_THREADS=1
 
@@ -11,8 +11,8 @@ BIN="${DENDRO_BUILD}/BSSN_GR/bssnSolverCUDA"
 PAR0="${HOME}/Dendro-GR-runs/q8.meshprobe.par.toml"
 SOL="${HOME}/Dendro-GR-runs/q8_hist_4gpu/mesh_q8_tpid_sol.bin"
 OUT="${HOME}/Dendro-GR-runs/q8_ncu_lb1"
-LOG="${HOME}/Dendro-GR-notes/tier0/tier21_ncu_lb1.log"
-REP="${HOME}/Dendro-GR-notes/tier0/rhs_pt_async_lb1"
+LOG="${HOME}/Dendro-GR/campaign-notes/tier0/tier21_ncu_lb1.log"
+REP="${HOME}/Dendro-GR/campaign-notes/tier0/rhs_pt_async_lb1"
 PREFIX=$(grep '^TPID_FILEPREFIX' "${PAR0}" | sed 's/.*= *"\([^"]*\)".*/\1/')
 
 mkdir -p "${OUT}"

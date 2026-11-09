@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tier 1.5: FD of GW L2 (psi4 proxy) w.r.t. m+ on frozen mesh, 1 GPU.
 set -euo pipefail
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 export OMP_NUM_THREADS=1
 BIN="${DENDRO_BUILD}/BSSN_GR/bssnSolverCUDA"

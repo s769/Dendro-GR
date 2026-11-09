@@ -11,7 +11,7 @@ BIN=$HOME/Dendro-GR-build/BSSN_GR
 PAR=$HOME/Dendro-GR-runs/q1.smoke_cons.par.toml
 RUN=$HOME/Dendro-GR-runs
 TPID=$RUN/tpid_work/rit_q1_tpid_sol.bin
-NOTES=$HOME/Dendro-GR-notes
+NOTES=$HOME/Dendro-GR/campaign-notes
 
 hostname
 nvidia-smi -L | head -1

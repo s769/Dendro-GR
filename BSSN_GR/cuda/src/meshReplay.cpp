@@ -196,6 +196,44 @@ int record_oct_snapshot(const ot::Mesh* mesh, DendroIntL step,
         mesh->getNumLocalMeshElements());
 }
 
+int record_init_flags(ot::Mesh* mesh, unsigned int iter) {
+    if (g_mode != Mode::Record || !mesh) return 0;
+    const int rank = mesh->getMPIRankGlobal();
+    const int npes = mesh->getMPICommSizeGlobal();
+    const std::vector<unsigned int> flags = mesh->getAllRefinementFlags();
+    if (write_u32_vec(flags_path(-(DendroIntL)iter, rank, npes), flags) != 0)
+        return 1;
+    MPI_Barrier(mesh->getMPIGlobalCommunicator());
+    if (!rank)
+        std::cout << "[mesh_replay] recorded INIT flags iter=" << iter
+                  << " nFlags=" << flags.size() << std::endl;
+    return 0;
+}
+
+int apply_init_flags(ot::Mesh* mesh, unsigned int iter) {
+    if (g_mode != Mode::Replay || !mesh) return 1;
+    const int rank = mesh->getMPIRankGlobal();
+    const int npes = mesh->getMPICommSizeGlobal();
+    std::vector<unsigned int> flags;
+    // Missing file on any rank means the record had no refinement here.
+    int have = (read_u32_vec(flags_path(-(DendroIntL)iter, rank, npes), flags) == 0);
+    int all = have;
+    MPI_Allreduce(&have, &all, 1, MPI_INT, MPI_MIN,
+                  mesh->getMPIGlobalCommunicator());
+    if (!all) return 1;
+    if (!mesh->setMeshRefinementFlags(flags)) {
+        if (!rank)
+            std::cerr << "[mesh_replay] INIT setMeshRefinementFlags failed iter "
+                      << iter << " (size " << flags.size() << " vs local "
+                      << mesh->getNumLocalMeshElements() << ")\n";
+        MPI_Abort(mesh->getMPIGlobalCommunicator(), 1);
+    }
+    if (!rank)
+        std::cout << "[mesh_replay] applied INIT flags iter=" << iter
+                  << std::endl;
+    return 0;
+}
+
 std::size_t remaining() {
     if (g_mode != Mode::Replay) return 0;
     return (g_next < g_events.size()) ? (g_events.size() - g_next) : 0;

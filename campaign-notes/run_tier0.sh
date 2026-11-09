@@ -4,8 +4,8 @@
 #SBATCH -N 1
 #SBATCH -n 1
 #SBATCH -t 01:30:00
-#SBATCH -o /home1/08435/srvenkat/Dendro-GR-notes/tier0_%j.out
-#SBATCH -e /home1/08435/srvenkat/Dendro-GR-notes/tier0_%j.err
+#SBATCH -o /home1/08435/srvenkat/Dendro-GR/campaign-notes/tier0_%j.out
+#SBATCH -e /home1/08435/srvenkat/Dendro-GR/campaign-notes/tier0_%j.err
 
 set -euo pipefail
 module purge
@@ -16,7 +16,7 @@ export PATH=/home1/apps/nvidia/Linux_aarch64/26.9/compilers/bin:$PATH
 export OMP_NUM_THREADS=1
 export CUDA_VISIBLE_DEVICES=0
 
-NOTES=$HOME/Dendro-GR-notes
+NOTES=$HOME/Dendro-GR/campaign-notes
 BIN=$HOME/Dendro-GR-build/BSSN_GR
 OUT=$NOTES/tier0
 mkdir -p "$OUT" "$NOTES/nsys/small_nblocks"

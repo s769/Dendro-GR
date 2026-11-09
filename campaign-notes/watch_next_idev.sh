@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # When JOB is RUNNING, run the next *real* GPU queue item (not filler).
 JOB="${1:-86880}"
-LOG="${HOME}/Dendro-GR-notes/tier0/watch_idev_${JOB}.log"
-NEXT="${HOME}/Dendro-GR-notes/run_next_gpu_task.sh"
+LOG="${HOME}/Dendro-GR/campaign-notes/tier0/watch_idev_${JOB}.log"
+NEXT="${HOME}/Dendro-GR/campaign-notes/run_next_gpu_task.sh"
 echo "$(date -Is) watching ${JOB} for next GPU task" | tee -a "${LOG}"
 while true; do
   st=$(timeout 12 squeue -j "${JOB}" -h -o '%T %N' 2>/dev/null || true)
@@ -12,7 +12,7 @@ while true; do
   if [[ "$t" == "RUNNING" && -n "$n" ]]; then
     echo "$(date -Is) dispatch next GPU task on ${n}" | tee -a "${LOG}"
     ssh -F /dev/null -o BatchMode=yes "$n" \
-      "nohup ${NEXT} >${HOME}/Dendro-GR-notes/tier0/next_gpu_${n}.out 2>&1 & echo PID=\$!" \
+      "nohup ${NEXT} >${HOME}/Dendro-GR/campaign-notes/tier0/next_gpu_${n}.out 2>&1 & echo PID=\$!" \
       | tee -a "${LOG}"
     exit 0
   fi

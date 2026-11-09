@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source /opt/apps/lmod/lmod/init/bash 2>/dev/null || true
-source /home1/08435/srvenkat/Dendro-GR-notes/env_build_horizon.sh
+source /home1/08435/srvenkat/Dendro-GR/campaign-notes/env_build_horizon.sh
 unset CUDA_VISIBLE_DEVICES
 export OMP_NUM_THREADS=1
 BIN="${DENDRO_BUILD}/BSSN_GR/bssnSolverCUDA"
 PAR0="/home1/08435/srvenkat/Dendro-GR-runs/q1.smoke_cons.par.toml"
 OUT="/home1/08435/srvenkat/Dendro-GR-runs/whilehot_q1_ets"
-LOG="/home1/08435/srvenkat/Dendro-GR-notes/tier0/whilehot_fine_ensk.log"
+LOG="/home1/08435/srvenkat/Dendro-GR/campaign-notes/tier0/whilehot_fine_ensk.log"
 mkdir -p "${OUT}/WHILEHOT"/{aeh,cp,dat,vtu}
 cp "${PAR0}" "${OUT}/WHILEHOT/local.par.toml"
 cd "${OUT}/WHILEHOT"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 BIN="${DENDRO_BUILD}/BSSN_GR/bssnSolverCUDA"
 PAR="${HOME}/Dendro-GR-runs/q1.smoke_cons.par.toml"
 TPID="${HOME}/Dendro-GR-runs/tpid_work/rit_q1_tpid_sol.bin"

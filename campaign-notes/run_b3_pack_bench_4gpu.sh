@@ -2,10 +2,10 @@
 # B3 pack A/B on 4 GPUs (serial-K ghosts vs ensK packed).
 set -euo pipefail
 source /opt/apps/lmod/lmod/init/bash 2>/dev/null || true
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 unset CUDA_VISIBLE_DEVICES
 export OMP_NUM_THREADS=1
-LOG="${HOME}/Dendro-GR-notes/tier0/b3_pack_bench_4gpu.log"
+LOG="${HOME}/Dendro-GR/campaign-notes/tier0/b3_pack_bench_4gpu.log"
 echo "host $(hostname) $(date -Is) b3_pack_4gpu" | tee "${LOG}"
 
 echo "==== build bssnSolverCUDA ====" | tee -a "${LOG}"

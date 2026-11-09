@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Longer 1.5 FD: same frozen mesh, TIME_END=1.0 (~15 steps), fewer eps for wall-clock.
 set -euo pipefail
-source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
+source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 export OMP_NUM_THREADS=1
 BIN="${DENDRO_BUILD}/BSSN_GR/bssnSolverCUDA"
