@@ -33,16 +33,12 @@ Differentiated BSSN RHS: given background state `u` and K tangent vectors `v[k]`
 ## Status
 
 - Scaffold: `BSSN_GR/cuda/include/bssn_tl_stub.cuh` (not linked into solver).
-- **Harness v0 PASS:** `tl_gauge_fd_test` — interior lapse RHS TL vs central FD, rel ~1e-8–1e-5 for ε∈{1e-7,1e-6,1e-5}.
-  - Binary: `Dendro-GR-build/BSSN_GR/tl_gauge_fd_test`
-  - Source: `BSSN_GR/cuda/src/tl_gauge_fd_test.cu`
-  - Log: `tier0/tl_gauge_fd_test.out` (re-run locally)
+- **Harness v0 PASS:** `tl_gauge_fd_test` — host stencil, rel ~1e-8–1e-5.
+- **Harness v1 PASS:** `tl_gauge_device_test` — device `__pt_fused_*3` stencils, rel ~1e-8 on c125-022 (`tier0/next_gpu_task.log`).
 
 ### Next coding slice
 
-1. Port the same TL operator onto the **device** PT stencil path (reuse `derivs_point` / KO).
+1. ~~Port TL onto device PT stencils~~ **done**.
 2. Wire one-block dump from frozen-mesh q1 (real unzipped α,K,β) and repeat FD gate.
 3. Add radiative BC linearization (currently omitted).
-4. Expand beyond lapse only after device gate passes.
-
-Do **not** block on full SymPy TL until the device gauge harness passes.
+4. Expand beyond lapse only after q1 gate passes.
