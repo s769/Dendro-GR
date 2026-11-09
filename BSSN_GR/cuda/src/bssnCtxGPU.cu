@@ -7,10 +7,14 @@
  * @copyright Copyright (c) 2022
  *
  */
+#include <cstdlib>
 #include <filesystem>
+#include <limits>
+#include <vector>
 
 #include "bssnChkptSchema.h"
 #include "bssnCtxGPU.cuh"
+#include "meshReplay.h"
 // CONST_MEM DEVICE_REAL device::refel_1d[2 * REFEL_CONST_MEM_MAX];
 
 namespace bssn {
@@ -87,6 +91,9 @@ BSSNCtxGPU::BSSNCtxGPU(ot::Mesh* pMesh) : Ctx() {
 
     m_dptr_min_det = GPUDevice::device_malloc<double>(1);
     GPUDevice::host_to_device<double>(&m_dMinDetGt, m_dptr_min_det, 1);
+    // Cap sized for large meshes; grown in post_timestep if needed.
+    m_uiBlockMinsCap  = 65536;
+    m_dptr_block_mins = GPUDevice::device_malloc<double>(m_uiBlockMinsCap);
 
     return;
 }
@@ -104,6 +111,7 @@ BSSNCtxGPU::~BSSNCtxGPU() {
                                           BSSN_NUM_VARS, BSSN_ASYNC_COMM_K);
     m_mesh_cpu.dealloc_mesh_on_device(m_dptr_mesh);
     GPUDevice::device_free<double>(m_dptr_min_det);
+    if (m_dptr_block_mins) GPUDevice::device_free<double>(m_dptr_block_mins);
     return;
 }
 
@@ -211,7 +219,10 @@ int BSSNCtxGPU::initialize() {
         m_evar_unz.to_2d(unzipVar);
         // isRefine=this->is_remesh();
         //  enforce WMAR refinement based refinement initially.
-        if (max_iter == 0)
+        // Under DENDRO_MESH_REPLAY, skip init WAMR so non-fiducial members
+        // inherit the frozen topology (flags applied later at recorded steps).
+        if (max_iter == 0 ||
+            bssn::mesh_replay::mode() == bssn::mesh_replay::Mode::Replay)
             isRefine = false;
         else
             isRefine =
@@ -303,6 +314,50 @@ int BSSNCtxGPU::initialize() {
         std::cout << "========================================================="
                      "======================================================"
                   << std::endl;
+    }
+
+    // Tier 0.2: block-count-per-level histogram + theoretical LTS work ratio.
+    // Enable with DENDRO_DUMP_BLK_LEV=1. Uses element level of each block's
+    // first local element (same as ENUTS getBlkTimestepFac path).
+    if (std::getenv("DENDRO_DUMP_BLK_LEV")) {
+        const unsigned int depth = m_uiMaxDepth + 1;
+        std::vector<unsigned long long> local_hist(depth, 0), hist(depth, 0);
+        const std::vector<ot::Block>& blkList = m_uiMesh->getLocalBlockList();
+        const ot::TreeNode* pNodes = m_uiMesh->getAllElements().data();
+        for (unsigned int b = 0; b < blkList.size(); b++) {
+            const unsigned int lev =
+                pNodes[blkList[b].getLocalElementBegin()].getLevel();
+            if (lev < depth) local_hist[lev]++;
+        }
+        MPI_Allreduce(local_hist.data(), hist.data(), (int)depth, MPI_UNSIGNED_LONG_LONG,
+                      MPI_SUM, m_uiMesh->getMPIGlobalCommunicator());
+        unsigned long long ntot = 0;
+        double work_lts = 0.0;
+        for (unsigned int l = 0; l < depth; l++) {
+            ntot += hist[l];
+            work_lts += (double)hist[l] * (double)(1ull << l);
+        }
+        const double work_gts =
+            (ntot > 0 && lmax < 63)
+                ? (double)ntot * (double)(1ull << lmax)
+                : 0.0;
+        const double ratio = (work_gts > 0.0) ? (work_lts / work_gts) : 0.0;
+        if (!m_uiMesh->getMPIRankGlobal()) {
+            std::cout << "[BLK_LEV_HIST] nblocks_total=" << ntot
+                      << " lmin=" << lmin << " lmax=" << lmax << std::endl;
+            for (unsigned int l = 0; l < depth; l++) {
+                if (hist[l] == 0) continue;
+                std::cout << "[BLK_LEV_HIST] level=" << l
+                          << " nblocks=" << hist[l] << std::endl;
+            }
+            std::cout << "[BLK_LEV_HIST] LTS_work_ratio="
+                      << "sum_l N_l*2^l / (N_tot*2^Lmax) = " << ratio
+                      << "  (ceiling on GTS/LTS step-work; smaller is better "
+                         "for LTS)"
+                      << std::endl;
+            std::cout << "[BLK_LEV_HIST] GTS_over_LTS_ceiling="
+                      << ((ratio > 0.0) ? (1.0 / ratio) : 0.0) << std::endl;
+        }
     }
 
     set_appropriate_derivs(bssn::BSSN_PADDING_WIDTH);
@@ -1140,10 +1195,61 @@ int BSSNCtxGPU::rhs(DVec* in, DVec* out, unsigned int sz, DendroScalar time) {
     // DEVICE_RHS_BATCHED_GRAIN_SZ,DEVICE_RHS_NSTREAMS>
     // (m_dptr_uz_o.get_vec_ptr(),m_dptr_uz_i.get_vec_ptr(),m_mesh_cpu.m_blk_list,
     // nblocks, m_dptr_deriv_evars, unzip_sz, KO_DISS_SIGMA);
-    device::bssnrhs3<3, pen_sz, pen_sz, DEVICE_RHS_BATCHED_GRAIN_SZ,
-                     DEVICE_RHS_NSTREAMS>(
-        m_dptr_uz_o.get_vec_ptr(), m_dptr_uz_i.get_vec_ptr(),
-        m_mesh_cpu.m_blk_list, nblocks, unzip_sz, KO_DISS_SIGMA);
+    // DENDRO_RHS_PT_F32SU=1 → PT fused on float shared tile (best candidate).
+    // DENDRO_RHS_PT_GMEM=1 → point FD from global (0 smem, higher occ).
+    // DENDRO_RHS_PT_DB=1 → PT + cp.async double-buffer.
+    // DENDRO_RHS_PT_ASYNC=1 → PT + cp.async load (no DB overlap).
+    // DENDRO_RHS_PT=1 → point-wise fused FD.
+    // Hybrid: interior blocks use PT*; domain-boundary (bflag!=0) use stock
+    // one-sided FD so C_HAM matches (PT alone diverges on faces).
+    // DENDRO_RHS_F32=1 → FP32 Du/DDu shared scratch (FP64 state/algebra).
+    if (std::getenv("DENDRO_RHS_PT_F32SU")) {
+        device::bssnrhs3_pt_f32su<3, pen_sz, pen_sz, DEVICE_RHS_BATCHED_GRAIN_SZ,
+                                  DEVICE_RHS_NSTREAMS>(
+            m_dptr_uz_o.get_vec_ptr(), m_dptr_uz_i.get_vec_ptr(),
+            m_mesh_cpu.m_blk_list, nblocks, unzip_sz, KO_DISS_SIGMA);
+    } else if (std::getenv("DENDRO_RHS_PT_GMEM")) {
+        device::bssnrhs3_pt_gmem<3, pen_sz, pen_sz, DEVICE_RHS_BATCHED_GRAIN_SZ,
+                                 DEVICE_RHS_NSTREAMS>(
+            m_dptr_uz_o.get_vec_ptr(), m_dptr_uz_i.get_vec_ptr(),
+            m_mesh_cpu.m_blk_list, nblocks, unzip_sz, KO_DISS_SIGMA);
+    } else if (std::getenv("DENDRO_RHS_PT_DB")) {
+        device::bssnrhs3_pt_db<3, pen_sz, pen_sz, DEVICE_RHS_BATCHED_GRAIN_SZ,
+                               DEVICE_RHS_NSTREAMS>(
+            m_dptr_uz_o.get_vec_ptr(), m_dptr_uz_i.get_vec_ptr(),
+            m_mesh_cpu.m_blk_list, nblocks, unzip_sz, KO_DISS_SIGMA);
+    } else if (std::getenv("DENDRO_RHS_PT_ASYNC")) {
+        device::bssnrhs3_pt_async<3, pen_sz, pen_sz, DEVICE_RHS_BATCHED_GRAIN_SZ,
+                                  DEVICE_RHS_NSTREAMS>(
+            m_dptr_uz_o.get_vec_ptr(), m_dptr_uz_i.get_vec_ptr(),
+            m_mesh_cpu.m_blk_list, nblocks, unzip_sz, KO_DISS_SIGMA);
+    } else if (std::getenv("DENDRO_RHS_PT")) {
+        device::bssnrhs3_pt<3, pen_sz, pen_sz, DEVICE_RHS_BATCHED_GRAIN_SZ,
+                            DEVICE_RHS_NSTREAMS>(
+            m_dptr_uz_o.get_vec_ptr(), m_dptr_uz_i.get_vec_ptr(),
+            m_mesh_cpu.m_blk_list, nblocks, unzip_sz, KO_DISS_SIGMA);
+    } else if (std::getenv("DENDRO_RHS_F32C")) {
+        // FP32 centered scratch (u-uc); expect ~rounding-level vs stock.
+        device::bssnrhs3_f32c<3, pen_sz, pen_sz, DEVICE_RHS_BATCHED_GRAIN_SZ,
+                              DEVICE_RHS_NSTREAMS>(
+            m_dptr_uz_o.get_vec_ptr(), m_dptr_uz_i.get_vec_ptr(),
+            m_mesh_cpu.m_blk_list, nblocks, unzip_sz, KO_DISS_SIGMA);
+    } else if (std::getenv("DENDRO_RHS_F32")) {
+        device::bssnrhs3_f32<3, pen_sz, pen_sz, DEVICE_RHS_BATCHED_GRAIN_SZ,
+                             DEVICE_RHS_NSTREAMS>(
+            m_dptr_uz_o.get_vec_ptr(), m_dptr_uz_i.get_vec_ptr(),
+            m_mesh_cpu.m_blk_list, nblocks, unzip_sz, KO_DISS_SIGMA);
+    } else if (std::getenv("DENDRO_RHS_PT_KOF32")) {
+        device::bssnrhs3_pt_kof32<3, pen_sz, pen_sz, DEVICE_RHS_BATCHED_GRAIN_SZ,
+                                  DEVICE_RHS_NSTREAMS>(
+            m_dptr_uz_o.get_vec_ptr(), m_dptr_uz_i.get_vec_ptr(),
+            m_mesh_cpu.m_blk_list, nblocks, unzip_sz, KO_DISS_SIGMA);
+    } else {
+        device::bssnrhs3<3, pen_sz, pen_sz, DEVICE_RHS_BATCHED_GRAIN_SZ,
+                         DEVICE_RHS_NSTREAMS>(
+            m_dptr_uz_o.get_vec_ptr(), m_dptr_uz_i.get_vec_ptr(),
+            m_mesh_cpu.m_blk_list, nblocks, unzip_sz, KO_DISS_SIGMA);
+    }
 #ifdef __PROFILE_CTX__
     GPUDevice::device_synchronize();
     m_uiCtxpt[ts::CTXPROFILE::RHS].stop();
@@ -1173,10 +1279,28 @@ int BSSNCtxGPU::post_timestep(DVec& sIn) {
     const unsigned int lb     = m_uiMesh->getNodeLocalBegin();
     const unsigned int le     = m_uiMesh->getNodeLocalEnd();
     const unsigned int szpdof = sIn.get_size() / sIn.get_dof();
-    device::cuda_bssn_enforce_evar_cons<<<(le - lb) / 1024 + 1, 1024>>>(
-        sIn.get_vec_ptr(), lb, le, bssn::CHI_FLOOR, szpdof, m_dptr_min_det);
+    const unsigned int nblk   = (le > lb) ? ((le - lb) / 1024 + 1) : 1;
+    if (nblk > m_uiBlockMinsCap) {
+        if (m_dptr_block_mins)
+            GPUDevice::device_free<double>(m_dptr_block_mins);
+        m_uiBlockMinsCap  = nblk;
+        m_dptr_block_mins = GPUDevice::device_malloc<double>(m_uiBlockMinsCap);
+    }
+    device::cuda_bssn_enforce_evar_cons<<<nblk, 1024>>>(
+        sIn.get_vec_ptr(), lb, le, bssn::CHI_FLOOR, szpdof, m_dptr_block_mins);
     GPUDevice::device_synchronize();
     GPUDevice::check_last_error();
+
+    // Ordered fold: ascending block index → device running min (bit-stable).
+    std::vector<double> hmins(nblk);
+    GPUDevice::device_to_host<double>(hmins.data(), m_dptr_block_mins, nblk);
+    double step_min = std::numeric_limits<double>::max();
+    for (unsigned int i = 0; i < nblk; ++i)
+        step_min = std::min(step_min, hmins[i]);
+    double cur = std::numeric_limits<double>::max();
+    GPUDevice::device_to_host<double>(&cur, m_dptr_min_det, 1);
+    cur = std::min(cur, step_min);
+    GPUDevice::host_to_device<double>(&cur, m_dptr_min_det, 1);
 
     return 0;
 }
@@ -1267,6 +1391,26 @@ int BSSNCtxGPU::terminal_output() {
         }
     }
 
+    return 0;
+}
+
+int BSSNCtxGPU::replace_mesh_and_transfer(ot::Mesh* newMesh) {
+    if (!newMesh) return 1;
+    DendroIntL oldElements = m_uiMesh->getNumLocalMeshElements();
+    DendroIntL newElements = newMesh->getNumLocalMeshElements();
+    DendroIntL oldElements_g = 0, newElements_g = 0;
+    par::Mpi_Reduce(&oldElements, &oldElements_g, 1, MPI_SUM, 0,
+                    m_uiMesh->getMPIGlobalCommunicator());
+    par::Mpi_Reduce(&newElements, &newElements_g, 1, MPI_SUM, 0,
+                    newMesh->getMPIGlobalCommunicator());
+    if (!m_uiMesh->getMPIRankGlobal())
+        std::cout << "[mesh_replay] adopt mesh | old=" << oldElements_g
+                  << " new=" << newElements_g << std::endl;
+
+    this->grid_transfer(newMesh);
+    std::swap(newMesh, m_uiMesh);
+    delete newMesh;
+    m_uiIsETSSynced = false;
     return 0;
 }
 
@@ -1404,6 +1548,16 @@ void BSSNCtxGPU::store_bh_loc_history() {
     m_uiBHLocHistory.push_back(
         std::make_pair(bssn::BSSN_BH_LOC[0], bssn::BSSN_BH_LOC[1]));
     m_uiBHTimeHistory.push_back(m_uiTinfo._m_uiT);
+}
+
+unsigned int BSSNCtxGPU::getBlkTimestepFac(unsigned int blev, unsigned int lmin,
+                                           unsigned int lmax) {
+    // Same policy as CPU BSSNCtx (ENUTS / LTS). Declared for Ctx CRTP; not
+    // used by the ETS GPU driver today.
+    (void)lmin;
+    const unsigned int ldiff = BSSN_LTS_TS_OFFSET;
+    if ((lmax - blev) <= ldiff) return 1;
+    return 1u << (lmax - blev - ldiff);
 }
 
 }  // namespace bssn

@@ -15,6 +15,7 @@
 #include "mpi.h"
 // #include "rkBSSN.h"
 #include "bssnCtxGPU.cuh"
+#include "meshReplay.h"
 #include "meshUtils.h"
 #include "octUtils.h"
 #include "sdc.h"
@@ -306,6 +307,7 @@ int main(int argc, char** argv) {
         else if ((RKType)bssn::BSSN_RK_TYPE == RKType::RK45_DORMAND_PRINCE)
             ets->set_ets_coefficients(ts::ETSType::RK45_DORMAND_PRINCE);
 
+        bssn::mesh_replay::init(comm);
         ets->init();
 #if defined __PROFILE_CTX__ && defined __PROFILE_ETS__
         std::ofstream outfile;
@@ -376,9 +378,50 @@ int main(int argc, char** argv) {
 #ifndef BSSN_PROFILE_SCALING_RUN
             bool did_d2h_sync = false;
 
-            // own cadence, like the CPU driver
-            if (bssn::BSSN_REMESH_TEST_FREQ > 0 &&
-                (step % bssn::BSSN_REMESH_TEST_FREQ) == 0 && step != 0) {
+            // Frozen-mesh replay: remesh only at recorded steps (no WAMR).
+            const bool replay_mode =
+                bssn::mesh_replay::mode() == bssn::mesh_replay::Mode::Replay;
+            const bool record_mode =
+                bssn::mesh_replay::mode() == bssn::mesh_replay::Mode::Record;
+
+            auto finish_remesh_bookkeeping = [&]() {
+                bssn::deallocate_bssn_deriv_workspace();
+                bssn::allocate_bssn_deriv_workspace(bssnCtx->get_mesh(), 1);
+                ets->sync_with_mesh();
+                ot::Mesh* pmesh = bssnCtx->get_mesh();
+                unsigned int lmin, lmax;
+                pmesh->computeMinMaxLevel(lmin, lmax);
+                if (!pmesh->getMPIRank())
+                    printf("post remesh grid level = (%d, %d)\n", lmin, lmax);
+                bssn::BSSN_CURRENT_MIN_DX =
+                    (bssn::min_domain_width() *
+                     ((1u << (m_uiMaxDepth - lmax)) /
+                      ((double)bssn::BSSN_ELE_ORDER)) /
+                     ((double)(1u << (m_uiMaxDepth))));
+                bssn::BSSN_RK45_TIME_STEP_SIZE =
+                    bssn::BSSN_CFL_FACTOR * bssn::BSSN_CURRENT_MIN_DX;
+                ts::TSInfo ts_in = bssnCtx->get_ts_info();
+                ts_in._m_uiTh    = bssn::BSSN_RK45_TIME_STEP_SIZE;
+                bssnCtx->set_ts_info(ts_in);
+            };
+
+            if (replay_mode && bssn::mesh_replay::due(step) && step != 0) {
+                if (!did_d2h_sync) {
+                    bssnCtx->device_to_host_sync();
+                    did_d2h_sync = true;
+                }
+                if (!rank_global)
+                    std::cout << "[ETS] : Frozen-mesh replay remesh.\n";
+                if (bssn::mesh_replay::apply_due_flags(bssnCtx->get_mesh()) ==
+                    0) {
+                    bssnCtx->remesh_and_gridtransfer(
+                        bssn::BSSN_DENDRO_GRAIN_SZ, bssn::BSSN_LOAD_IMB_TOL,
+                        bssn::BSSN_SPLIT_FIX);
+                    finish_remesh_bookkeeping();
+                }
+            } else if (!replay_mode && bssn::BSSN_REMESH_TEST_FREQ > 0 &&
+                       (step % bssn::BSSN_REMESH_TEST_FREQ) == 0 &&
+                       step != 0) {
                 // is_remesh() reads the host evolution vars
                 if (!did_d2h_sync) {
                     bssnCtx->device_to_host_sync();
@@ -388,38 +431,19 @@ int main(int argc, char** argv) {
                 if (isRemesh) {
                     if (!rank_global)
                         std::cout << "[ETS] : Remesh is triggered.  \n";
-
+                    // Flags must be captured *before* ReMesh consumes them.
+                    if (record_mode) {
+                        bssn::mesh_replay::record_flags(bssnCtx->get_mesh(),
+                                                        step, time);
+                    }
                     bssnCtx->remesh_and_gridtransfer(
                         bssn::BSSN_DENDRO_GRAIN_SZ, bssn::BSSN_LOAD_IMB_TOL,
                         bssn::BSSN_SPLIT_FIX);
-                    bssn::deallocate_bssn_deriv_workspace();
-                    bssn::allocate_bssn_deriv_workspace(bssnCtx->get_mesh(),
-                                                        1);
-                    ets->sync_with_mesh();
-                    // correct timestep size
-                    ot::Mesh* pmesh = bssnCtx->get_mesh();
-                    unsigned int lmin, lmax;
-                    pmesh->computeMinMaxLevel(lmin, lmax);
-                    if (!pmesh->getMPIRank())
-                        printf("post merger grid level = (%d, %d)\n", lmin,
-                               lmax);
-
-                    // calculate the minimum dx
-                    bssn::BSSN_CURRENT_MIN_DX =
-                        (bssn::min_domain_width() *
-                         ((1u << (m_uiMaxDepth - lmax)) /
-                          ((double)bssn::BSSN_ELE_ORDER)) /
-                         ((double)(1u << (m_uiMaxDepth))));
-
-                    bssn::BSSN_RK45_TIME_STEP_SIZE =
-                        bssn::BSSN_CFL_FACTOR *
-                        (bssn::min_domain_width() *
-                         ((1u << (m_uiMaxDepth - lmax)) /
-                          ((double)bssn::BSSN_ELE_ORDER)) /
-                         ((double)(1u << (m_uiMaxDepth))));
-                    ts::TSInfo ts_in = bssnCtx->get_ts_info();
-                    ts_in._m_uiTh    = bssn::BSSN_RK45_TIME_STEP_SIZE;
-                    bssnCtx->set_ts_info(ts_in);
+                    if (record_mode) {
+                        bssn::mesh_replay::record_oct_snapshot(
+                            bssnCtx->get_mesh(), step, time);
+                    }
+                    finish_remesh_bookkeeping();
                 }
             }
 

@@ -65,6 +65,17 @@ void readParamJSONFile(const char* fName, MPI_Comm comm);
 void dumpParamFile(std::ostream& sout, int root, MPI_Comm comm);
 
 /**
+ * @brief Resolve TPID bare-mass / geometry bookkeeping for the inversion path.
+ *
+ * When TPID_GIVE_BARE_MASS=1, bare puncture masses come from BSSN_BH{1,2}.MASS
+ * (not TPID_TARGET_M_*). When 0, TARGET_M_* remain the ADM targets and the
+ * iterative bare-mass solve stays in the differentiated path (avoid for
+ * ensemble/SVN). Also dumps the resolved parameter vector on rank 0 and warns
+ * if BSSN_BH X positions disagree with center_offset ± par_b.
+ */
+void resolveTPIDBareParameters(int rank);
+
+/**
  * @brief A general initial data function wrapper
  *
  * This function is designed to be called by the grid initialization. It can

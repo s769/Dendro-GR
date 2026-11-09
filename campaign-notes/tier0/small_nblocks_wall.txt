@@ -1,0 +1,6 @@
+nblocks=32 time_s=0.0029
+nblocks=64 time_s=0.0031
+nblocks=128 time_s=0.0048
+nblocks=256 time_s=0.0092
+nblocks=512 time_s=0.0181
+nblocks=2048 time_s=0.0638

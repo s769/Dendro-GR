@@ -86,6 +86,9 @@ class BSSNCtxGPU : public ts::Ctx<BSSNCtxGPU, DendroScalar, unsigned int> {
     // host side (initial data) and device side (every RK stage)
     double m_dMinDetGt          = std::numeric_limits<double>::max();
     double* m_dptr_min_det      = nullptr;
+    // Per-CTA mins from cuda_bssn_enforce_evar_cons (order-fixed host fold)
+    double* m_dptr_block_mins   = nullptr;
+    unsigned int m_uiBlockMinsCap = 0;
     bool m_bBHEvolved           = false;
 
    public:
@@ -237,6 +240,13 @@ class BSSNCtxGPU : public ts::Ctx<BSSNCtxGPU, DendroScalar, unsigned int> {
                                           unsigned int lmax);
 
     int grid_transfer(const ot::Mesh* m_new);
+
+    /**
+     * @brief Adopt a pre-built mesh (frozen-mesh replay): grid-transfer
+     * evolution vars, swap into the context, rebuild device mesh. Takes
+     * ownership of @p newMesh (deletes the old mesh).
+     */
+    int replace_mesh_and_transfer(ot::Mesh* newMesh);
 
     int host_to_device_sync();
 

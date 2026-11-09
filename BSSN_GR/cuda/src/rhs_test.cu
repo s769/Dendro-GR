@@ -185,6 +185,337 @@ int main(int argc, char** argv) {
         t_gpu.stop();
     }
 
+    // Optional: workspace-deriv path (eval_rhs4). Needs deriv WS sized to nblocks.
+    if (std::getenv("DENDRO_TIME_PT")) {
+        profiler_t t_pt;
+        device::bssnrhs3_pt<3, blk_sz_1d, blk_sz_1d, blk_batch_size, nstreams>(
+            dptr_Fu, dptr_u, dptr_blk, blk.size(), szp_dof, ko_sigma);
+        GPUDevice::check_last_error();
+        for (unsigned int i = 0; i < nReps; i++) {
+            t_pt.start();
+            device::bssnrhs3_pt<3, blk_sz_1d, blk_sz_1d, blk_batch_size,
+                                nstreams>(dptr_Fu, dptr_u, dptr_blk, blk.size(),
+                                          szp_dof, ko_sigma);
+            t_pt.stop();
+        }
+        printf("pt_gpu_time\t%.4f\n", (double)t_pt.seconds);
+        GPUDevice::device_to_host(Fu_gpu, dptr_Fu, blk_vec_sz);
+    }
+
+    if (std::getenv("DENDRO_TIME_PT_ASYNC")) {
+        profiler_t t_async;
+        device::bssnrhs3_pt_async<3, blk_sz_1d, blk_sz_1d, blk_batch_size,
+                                  nstreams>(dptr_Fu, dptr_u, dptr_blk,
+                                            blk.size(), szp_dof, ko_sigma);
+        GPUDevice::check_last_error();
+        for (unsigned int i = 0; i < nReps; i++) {
+            t_async.start();
+            device::bssnrhs3_pt_async<3, blk_sz_1d, blk_sz_1d, blk_batch_size,
+                                      nstreams>(dptr_Fu, dptr_u, dptr_blk,
+                                                blk.size(), szp_dof, ko_sigma);
+            t_async.stop();
+        }
+        printf("pt_async_gpu_time\t%.4f\n", (double)t_async.seconds);
+        GPUDevice::device_to_host(Fu_gpu, dptr_Fu, blk_vec_sz);
+
+        // Tier 1.3: ensemble K as grid.y on shared block list.
+        const char* ens_env = std::getenv("DENDRO_ENSEMBLE_K");
+        const unsigned int K = ens_env ? std::max(atoi(ens_env), 1) : 0;
+        if (K > 1) {
+            double* dptr_uK =
+                GPUDevice::device_malloc<double>(blk_vec_sz * K);
+            double* dptr_FuK =
+                GPUDevice::device_malloc<double>(blk_vec_sz * K);
+            for (unsigned int k = 0; k < K; ++k) {
+                cudaMemcpy(dptr_uK + k * blk_vec_sz, dptr_u,
+                           blk_vec_sz * sizeof(double),
+                           cudaMemcpyDeviceToDevice);
+            }
+            // Serial-K baseline: K independent launches.
+            profiler_t t_serial;
+            for (unsigned int i = 0; i < nReps; i++) {
+                t_serial.start();
+                for (unsigned int k = 0; k < K; ++k) {
+                    device::bssnrhs3_pt_async<3, blk_sz_1d, blk_sz_1d,
+                                              blk_batch_size, nstreams>(
+                        dptr_FuK + k * blk_vec_sz, dptr_uK + k * blk_vec_sz,
+                        dptr_blk, blk.size(), szp_dof, ko_sigma, 1);
+                }
+                t_serial.stop();
+            }
+            // Fused v1: one launch, grid.y = K.
+            profiler_t t_ens;
+            device::bssnrhs3_pt_async<3, blk_sz_1d, blk_sz_1d, blk_batch_size,
+                                      nstreams>(dptr_FuK, dptr_uK, dptr_blk,
+                                                blk.size(), szp_dof, ko_sigma,
+                                                K, false);
+            GPUDevice::check_last_error();
+            for (unsigned int i = 0; i < nReps; i++) {
+                t_ens.start();
+                device::bssnrhs3_pt_async<3, blk_sz_1d, blk_sz_1d,
+                                          blk_batch_size, nstreams>(
+                    dptr_FuK, dptr_uK, dptr_blk, blk.size(), szp_dof, ko_sigma,
+                    K, false);
+                t_ens.stop();
+            }
+            printf("pt_async_serialK_time\tK=%u\t%.4f\n", K,
+                   (double)t_serial.seconds);
+            printf("pt_async_ensK_time\tK=%u\t%.4f\n", K,
+                   (double)t_ens.seconds);
+            printf("pt_async_ensK_speedup\tK=%u\t%.3f\n", K,
+                   (double)t_serial.seconds /
+                       std::max((double)t_ens.seconds, 1e-12));
+
+            double* Fu_ref = new double[blk_vec_sz];
+            double* Fu_slot = new double[blk_vec_sz];
+            std::memcpy(Fu_ref, Fu_gpu, blk_vec_sz * sizeof(double));
+            unsigned int slot_mismatch = 0;
+            for (unsigned int k = 0; k < K; ++k) {
+                GPUDevice::device_to_host(Fu_slot, dptr_FuK + k * blk_vec_sz,
+                                          blk_vec_sz);
+                for (unsigned int i = 0; i < blk_vec_sz; ++i) {
+                    if (Fu_slot[i] != Fu_ref[i]) {
+                        ++slot_mismatch;
+                        break;
+                    }
+                }
+            }
+            printf("pt_async_ensK_bitid_slots\tK=%u\tmismatched_slots=%u\n", K,
+                   slot_mismatch);
+
+            // Tier 1.3 v2: K members/CTA (geometry shared; loop members).
+            profiler_t t_share;
+            device::bssnrhs3_pt_async<3, blk_sz_1d, blk_sz_1d, blk_batch_size,
+                                      nstreams>(dptr_FuK, dptr_uK, dptr_blk,
+                                                blk.size(), szp_dof, ko_sigma,
+                                                K, true);
+            GPUDevice::check_last_error();
+            for (unsigned int i = 0; i < nReps; i++) {
+                t_share.start();
+                device::bssnrhs3_pt_async<3, blk_sz_1d, blk_sz_1d,
+                                          blk_batch_size, nstreams>(
+                    dptr_FuK, dptr_uK, dptr_blk, blk.size(), szp_dof, ko_sigma,
+                    K, true);
+                t_share.stop();
+            }
+            printf("pt_async_kshare_time\tK=%u\t%.4f\n", K,
+                   (double)t_share.seconds);
+            printf("pt_async_kshare_vs_ensK\tK=%u\t%.3f\n", K,
+                   (double)t_ens.seconds /
+                       std::max((double)t_share.seconds, 1e-12));
+            printf("pt_async_kshare_vs_single\tK=%u\t%.3f\n", K,
+                   (double)t_share.seconds /
+                       std::max((double)t_async.seconds, 1e-12));
+
+            unsigned int kshare_mismatch = 0;
+            for (unsigned int k = 0; k < K; ++k) {
+                GPUDevice::device_to_host(Fu_slot, dptr_FuK + k * blk_vec_sz,
+                                          blk_vec_sz);
+                for (unsigned int i = 0; i < blk_vec_sz; ++i) {
+                    if (Fu_slot[i] != Fu_ref[i]) {
+                        ++kshare_mismatch;
+                        break;
+                    }
+                }
+            }
+            printf("pt_async_kshare_bitid_slots\tK=%u\tmismatched_slots=%u\n", K,
+                   kshare_mismatch);
+            delete[] Fu_ref;
+            delete[] Fu_slot;
+            GPUDevice::device_free(dptr_uK);
+            GPUDevice::device_free(dptr_FuK);
+        }
+    }
+
+    if (std::getenv("DENDRO_TIME_PT_GMEM")) {
+        profiler_t t_gmem;
+        device::bssnrhs3_pt_gmem<3, blk_sz_1d, blk_sz_1d, blk_batch_size,
+                                 nstreams>(dptr_Fu, dptr_u, dptr_blk,
+                                           blk.size(), szp_dof, ko_sigma);
+        GPUDevice::check_last_error();
+        for (unsigned int i = 0; i < nReps; i++) {
+            t_gmem.start();
+            device::bssnrhs3_pt_gmem<3, blk_sz_1d, blk_sz_1d, blk_batch_size,
+                                     nstreams>(dptr_Fu, dptr_u, dptr_blk,
+                                               blk.size(), szp_dof, ko_sigma);
+            t_gmem.stop();
+        }
+        printf("pt_gmem_gpu_time\t%.4f\n", (double)t_gmem.seconds);
+        GPUDevice::device_to_host(Fu_gpu, dptr_Fu, blk_vec_sz);
+    }
+
+    if (std::getenv("DENDRO_TIME_PT_F32SU")) {
+        profiler_t t_f32su;
+        device::bssnrhs3_pt_f32su<3, blk_sz_1d, blk_sz_1d, blk_batch_size,
+                                  nstreams>(dptr_Fu, dptr_u, dptr_blk,
+                                            blk.size(), szp_dof, ko_sigma);
+        GPUDevice::check_last_error();
+        for (unsigned int i = 0; i < nReps; i++) {
+            t_f32su.start();
+            device::bssnrhs3_pt_f32su<3, blk_sz_1d, blk_sz_1d, blk_batch_size,
+                                      nstreams>(dptr_Fu, dptr_u, dptr_blk,
+                                                blk.size(), szp_dof, ko_sigma);
+            t_f32su.stop();
+        }
+        printf("pt_f32su_gpu_time\t%.4f\n", (double)t_f32su.seconds);
+        GPUDevice::device_to_host(Fu_gpu, dptr_Fu, blk_vec_sz);
+    }
+
+    if (std::getenv("DENDRO_TIME_PT_DB")) {
+        profiler_t t_db;
+        device::bssnrhs3_pt_db<3, blk_sz_1d, blk_sz_1d, blk_batch_size,
+                               nstreams>(dptr_Fu, dptr_u, dptr_blk, blk.size(),
+                                         szp_dof, ko_sigma);
+        GPUDevice::check_last_error();
+        for (unsigned int i = 0; i < nReps; i++) {
+            t_db.start();
+            device::bssnrhs3_pt_db<3, blk_sz_1d, blk_sz_1d, blk_batch_size,
+                                   nstreams>(dptr_Fu, dptr_u, dptr_blk,
+                                             blk.size(), szp_dof, ko_sigma);
+            t_db.stop();
+        }
+        printf("pt_db_gpu_time\t%.4f\n", (double)t_db.seconds);
+        GPUDevice::device_to_host(Fu_gpu, dptr_Fu, blk_vec_sz);
+    }
+
+    if (std::getenv("DENDRO_TIME_PT_KOF32")) {
+        profiler_t t_kof;
+        device::bssnrhs3_pt_kof32<3, blk_sz_1d, blk_sz_1d, blk_batch_size,
+                                  nstreams>(dptr_Fu, dptr_u, dptr_blk,
+                                            blk.size(), szp_dof, ko_sigma);
+        GPUDevice::check_last_error();
+        for (unsigned int i = 0; i < nReps; i++) {
+            t_kof.start();
+            device::bssnrhs3_pt_kof32<3, blk_sz_1d, blk_sz_1d, blk_batch_size,
+                                      nstreams>(dptr_Fu, dptr_u, dptr_blk,
+                                                blk.size(), szp_dof, ko_sigma);
+            t_kof.stop();
+        }
+        printf("pt_kof32_gpu_time\t%.4f\n", (double)t_kof.seconds);
+        GPUDevice::device_to_host(Fu_gpu, dptr_Fu, blk_vec_sz);
+    }
+
+    if (std::getenv("DENDRO_TIME_F2D")) {
+        profiler_t t_f2d;
+        device::bssnrhs3_f2d<3, blk_sz_1d, blk_sz_1d, blk_batch_size, nstreams>(
+            dptr_Fu, dptr_u, dptr_blk, blk.size(), szp_dof, ko_sigma);
+        GPUDevice::check_last_error();
+        for (unsigned int i = 0; i < nReps; i++) {
+            t_f2d.start();
+            device::bssnrhs3_f2d<3, blk_sz_1d, blk_sz_1d, blk_batch_size,
+                                 nstreams>(dptr_Fu, dptr_u, dptr_blk, blk.size(),
+                                           szp_dof, ko_sigma);
+            t_f2d.stop();
+        }
+        printf("f2d_gpu_time\t%.4f\n", (double)t_f2d.seconds);
+        GPUDevice::device_to_host(Fu_gpu, dptr_Fu, blk_vec_sz);
+    }
+
+    if (std::getenv("DENDRO_TIME_F32")) {
+        profiler_t t_f32;
+        device::bssnrhs3_f32<3, blk_sz_1d, blk_sz_1d, blk_batch_size, nstreams>(
+            dptr_Fu, dptr_u, dptr_blk, blk.size(), szp_dof, ko_sigma);
+        GPUDevice::check_last_error();
+        for (unsigned int i = 0; i < nReps; i++) {
+            t_f32.start();
+            device::bssnrhs3_f32<3, blk_sz_1d, blk_sz_1d, blk_batch_size,
+                                 nstreams>(dptr_Fu, dptr_u, dptr_blk, blk.size(),
+                                           szp_dof, ko_sigma);
+            t_f32.stop();
+        }
+        printf("f32_gpu_time\t%.4f\n", (double)t_f32.seconds);
+        GPUDevice::device_to_host(Fu_gpu, dptr_Fu, blk_vec_sz);
+    }
+
+    if (std::getenv("DENDRO_TIME_F32C")) {
+        profiler_t t_f32c;
+        device::bssnrhs3_f32c<3, blk_sz_1d, blk_sz_1d, blk_batch_size,
+                              nstreams>(dptr_Fu, dptr_u, dptr_blk, blk.size(),
+                                        szp_dof, ko_sigma);
+        GPUDevice::check_last_error();
+        for (unsigned int i = 0; i < nReps; i++) {
+            t_f32c.start();
+            device::bssnrhs3_f32c<3, blk_sz_1d, blk_sz_1d, blk_batch_size,
+                                  nstreams>(dptr_Fu, dptr_u, dptr_blk,
+                                            blk.size(), szp_dof, ko_sigma);
+            t_f32c.stop();
+        }
+        printf("f32c_gpu_time\t%.4f\n", (double)t_f32c.seconds);
+        GPUDevice::device_to_host(Fu_gpu, dptr_Fu, blk_vec_sz);
+    }
+
+    if (std::getenv("DENDRO_TIME_RHS2")) {
+        profiler_t t_rhs2;
+        device::bssnrhs2<3, blk_sz_1d, blk_sz_1d, blk_batch_size, nstreams>(
+            dptr_Fu, dptr_u, dptr_blk, blk.size(), dptr_deriv_evars_ws, szp_dof,
+            ko_sigma);
+        GPUDevice::check_last_error();
+        for (unsigned int i = 0; i < nReps; i++) {
+            t_rhs2.start();
+            device::bssnrhs2<3, blk_sz_1d, blk_sz_1d, blk_batch_size, nstreams>(
+                dptr_Fu, dptr_u, dptr_blk, blk.size(), dptr_deriv_evars_ws,
+                szp_dof, ko_sigma);
+            t_rhs2.stop();
+        }
+        printf("rhs2_gpu_time\t%.4f\n", (double)t_rhs2.seconds);
+        GPUDevice::device_to_host(Fu_gpu, dptr_Fu, blk_vec_sz);
+    }
+
+#if DENDRO_HAS_WS_KERNELS
+    if (std::getenv("DENDRO_TIME_WS")) {
+        const unsigned int nb = static_cast<unsigned int>(blk.size());
+        const size_t ws_elems = 210ull * nb * 343ull;
+        DEVICE_REAL* grad_ws = GPUDevice::device_malloc<DEVICE_REAL>(ws_elems);
+        profiler_t t_ws;
+        device::bssnrhs3_ws<3, blk_sz_1d, blk_sz_1d>(
+            dptr_Fu, dptr_u, dptr_blk, nb, szp_dof, ko_sigma, grad_ws);
+        GPUDevice::check_last_error();
+        for (unsigned int i = 0; i < nReps; i++) {
+            t_ws.start();
+            device::bssnrhs3_ws<3, blk_sz_1d, blk_sz_1d>(
+                dptr_Fu, dptr_u, dptr_blk, nb, szp_dof, ko_sigma, grad_ws);
+            t_ws.stop();
+        }
+        printf("ws_gpu_time\t%.4f\n", (double)t_ws.seconds);
+        // Compare against CPU Fu already computed: reuse Fu_gpu path after
+        GPUDevice::device_to_host(Fu_gpu, dptr_Fu, blk_vec_sz);
+        GPUDevice::device_free(grad_ws);
+    }
+#endif
+
+    if (std::getenv("DENDRO_TIME_RHS4")) {
+        const unsigned int nb = static_cast<unsigned int>(blk.size());
+        const unsigned int sz_all = num_bssn_derivs * nb * BLK_SZ;
+        DEVICE_REAL* deriv_base_all =
+            GPUDevice::device_malloc<DEVICE_REAL>(sz_all);
+        BSSN_EVAR_DERIVS deriv_evars_all;
+        BSSN_EVAR_DERIVS* dptr_deriv_all =
+            GPUDevice::device_malloc<BSSN_EVAR_DERIVS>(1);
+        {
+            const unsigned int BATCHED_BLOCKS_SZ = nb;
+            DEVICE_REAL* deriv_base = deriv_base_all;
+            BSSN_EVAR_DERIVS* deriv_evars = &deriv_evars_all;
+#include "../scripts/bssnrhs_memalloc.cuh"
+        }
+        GPUDevice::host_to_device(&deriv_evars_all, dptr_deriv_all, 1);
+        profiler_t t_rhs4;
+        device::bssnrhs4<3, blk_sz_1d, blk_sz_1d, 1, 1>(
+            dptr_Fu, dptr_u, dptr_blk, nb, dptr_deriv_all, szp_dof, ko_sigma);
+        cudaDeviceSynchronize();
+        GPUDevice::check_last_error();
+        for (unsigned int i = 0; i < nReps; i++) {
+            t_rhs4.start();
+            device::bssnrhs4<3, blk_sz_1d, blk_sz_1d, 1, 1>(
+                dptr_Fu, dptr_u, dptr_blk, nb, dptr_deriv_all, szp_dof,
+                ko_sigma);
+            cudaDeviceSynchronize();
+            t_rhs4.stop();
+        }
+        printf("rhs4_gpu_time\t%.4f\n", (double)t_rhs4.seconds);
+        GPUDevice::device_free(deriv_base_all);
+        GPUDevice::device_free(dptr_deriv_all);
+    }
+
     // device::bssnrhs4<3, blk_sz_1d, blk_sz_1d, blk_batch_size,nstreams>
     // (dptr_Fu,dptr_u,dptr_blk, blk.size(), dptr_deriv_evars_ws , szp_dof,
     // ko_sigma); cudaDeviceSynchronize(); GPUDevice::check_last_error();
@@ -241,6 +572,17 @@ int main(int argc, char** argv) {
     // t_gpu.stop();
 
     GPUDevice::device_to_host(Fu_gpu, dptr_Fu, blk_vec_sz);
+
+    // Optional: dump Fu for run-to-run bit identity (HANDOFF_NEXT A0).
+    if (const char* dump = std::getenv("DENDRO_DUMP_FU")) {
+        FILE* f = fopen(dump, "wb");
+        if (f) {
+            fwrite(&blk_vec_sz, sizeof(blk_vec_sz), 1, f);
+            fwrite(Fu_gpu, sizeof(double), blk_vec_sz, f);
+            fclose(f);
+            printf("wrote_fu_dump\t%s\t%u\n", dump, blk_vec_sz);
+        }
+    }
 
     printf("cpu_time\tgpu_time\tspeedup\n");
     printf("%.4f\t%.4f\t%.2f\n", (double)t_cpu.seconds, (double)t_gpu.seconds,

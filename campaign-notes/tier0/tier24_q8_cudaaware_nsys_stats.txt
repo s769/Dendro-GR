@@ -1,0 +1,27 @@
+Generating SQLite file /home1/08435/srvenkat/Dendro-GR-notes/tier0/tier24_q8_4gpu_cudaaware.sqlite from /home1/08435/srvenkat/Dendro-GR-notes/tier0/tier24_q8_4gpu_cudaaware.nsys-rep
+Processing [/home1/08435/srvenkat/Dendro-GR-notes/tier0/tier24_q8_4gpu_cudaaware.sqlite] with [/opt/nvidia/nsight-systems/2025.6.3/host-linux-armv8/reports/cuda_gpu_kern_sum.py]... 
+
+ ** CUDA GPU Kernel Summary (cuda_gpu_kern_sum):
+
+ Time (%)  Total Time (ns)  Instances   Avg (ns)     Med (ns)    Min (ns)   Max (ns)   StdDev (ns)                                                  Name                                                
+ --------  ---------------  ---------  -----------  -----------  ---------  ---------  -----------  ----------------------------------------------------------------------------------------------------
+     40.3    2,641,729,349      1,968  1,342,342.1  1,411,200.0  1,219,552  1,876,320    104,397.0  void device::eval_rhs3_pt_async<(int)3, (int)13, (int)13>(double *, const double *, const BlockGPU3…
+     27.9    1,830,582,180      1,968    930,173.9    955,744.0    802,656  1,631,840    109,366.6  void device::__unzip_cg1__2<double, (unsigned int)6, (unsigned int)3>(const device::MeshGPU *, cons…
+     18.9    1,235,628,008      1,968    627,859.8    631,120.0    529,632    920,448     68,606.0  void device::eval_rhs3<(int)3, (int)13, (int)13, (int)2>(double *, const double *, const BlockGPU3D…
+      5.2      338,990,626      1,968    172,251.3    180,704.0    123,616    262,176     27,718.8  void device::__read_rb_cg__<double>(const device::MeshGPU *, const T1 *, T1 *)                      
+      4.4      289,601,953      1,968    147,155.5    152,320.0    107,840    217,568     23,144.9  void device::__write_sb_cg__<double>(const device::MeshGPU *, const T1 *, T1 *)                     
+      1.4       94,754,753      3,444     27,513.0     27,584.0     22,688     33,440      2,081.9  void axpy_cu_2d<double>(unsigned int, unsigned int, unsigned int, T1, const T1 *, T1 *)             
+      1.4       90,360,319      1,968     45,914.8     46,464.0     42,080     52,288      1,909.6  void device::__zip_cg__<double, (unsigned int)6, (unsigned int)3>(const device::MeshGPU *, const T1…
+      0.5       31,697,280      2,460     12,885.1     12,768.0     11,840     17,120        636.4  void device::cuda_bssn_enforce_evar_cons<double>(T1 *, unsigned int, unsigned int, T1, unsigned int…
+
+Processing [/home1/08435/srvenkat/Dendro-GR-notes/tier0/tier24_q8_4gpu_cudaaware.sqlite] with [/opt/nvidia/nsight-systems/2025.6.3/host-linux-armv8/reports/cuda_gpu_mem_time_sum.py]... 
+
+ ** CUDA GPU MemOps Summary (by Time) (cuda_gpu_mem_time_sum):
+
+ Time (%)  Total Time (ns)  Count  Avg (ns)  Med (ns)  Min (ns)  Max (ns)   StdDev (ns)            Operation           
+ --------  ---------------  -----  --------  --------  --------  ---------  -----------  ------------------------------
+     62.7      224,036,896  6,117  36,625.3  45,248.0     3,328     59,968     17,324.7  [CUDA memcpy Peer-to-Peer]    
+     16.7       59,526,752  1,968  30,247.3  30,544.0    27,680     33,984      1,344.3  [CUDA memcpy Device-to-Device]
+     10.5       37,414,464  3,604  10,381.4     928.0       736  1,558,944     78,135.2  [CUDA memcpy Host-to-Device]  
+     10.2       36,307,968  5,133   7,073.4   1,856.0     1,472  2,702,336     51,486.0  [CUDA memcpy Device-to-Host]  
+

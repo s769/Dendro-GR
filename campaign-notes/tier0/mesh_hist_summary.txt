@@ -1,0 +1,66 @@
+lmin: 2 lmax:9
+[bssnCtx] iter : 1 (Remesh triggered) ->  old mesh : 876 new mesh : 4320
+[bssnCtx] iter : 1 (Remesh triggered) ->  old mesh (zip nodes) : 176623 new mesh (zip nodes) : 895855
+[bssnCtx] iter : 2 (Remesh triggered) ->  old mesh : 4320 new mesh : 4271
+[bssnCtx] iter : 2 (Remesh triggered) ->  old mesh (zip nodes) : 895855 new mesh (zip nodes) : 885817
+[bssnCtx] iter : 3 (Remesh triggered) ->  old mesh : 4271 new mesh : 4383
+[bssnCtx] iter : 3 (Remesh triggered) ->  old mesh (zip nodes) : 885817 new mesh (zip nodes) : 907897
+[bssnCtx] iter : 4 (Remesh triggered) ->  old mesh : 4383 new mesh : 4334
+[bssnCtx] iter : 4 (Remesh triggered) ->  old mesh (zip nodes) : 907897 new mesh (zip nodes) : 897955
+[bssnCtx] iter : 5 (Remesh triggered) ->  old mesh : 4334 new mesh : 4390
+[bssnCtx] iter : 5 (Remesh triggered) ->  old mesh (zip nodes) : 897955 new mesh (zip nodes) : 909199
+[bssnCtx] iter : 6 (Remesh triggered) ->  old mesh : 4390 new mesh : 4334
+[bssnCtx] iter : 6 (Remesh triggered) ->  old mesh (zip nodes) : 909199 new mesh (zip nodes) : 897955
+[bssnCtx] iter : 7 (Remesh triggered) ->  old mesh : 4334 new mesh : 4390
+[bssnCtx] iter : 7 (Remesh triggered) ->  old mesh (zip nodes) : 897955 new mesh (zip nodes) : 909199
+================= Grid Info (After init grid converge):=======================================================
+lmin: 3 lmax:12
+[BLK_LEV_HIST] nblocks_total=4390 lmin=3 lmax=12
+[BLK_LEV_HIST] level=3 nblocks=448
+[BLK_LEV_HIST] level=4 nblocks=448
+[BLK_LEV_HIST] level=5 nblocks=448
+[BLK_LEV_HIST] level=6 nblocks=448
+[BLK_LEV_HIST] level=7 nblocks=432
+[BLK_LEV_HIST] level=8 nblocks=544
+[BLK_LEV_HIST] level=9 nblocks=656
+[BLK_LEV_HIST] level=10 nblocks=888
+[BLK_LEV_HIST] level=11 nblocks=62
+[BLK_LEV_HIST] level=12 nblocks=16
+[BLK_LEV_HIST] LTS_work_ratio=sum_l N_l*2^l / (N_tot*2^Lmax) = 0.0937642  (ceiling on GTS/LTS step-work; smaller is better for LTS)
+[BLK_LEV_HIST] GTS_over_LTS_ceiling=10.665
+lmin: 2 lmax:9
+[bssnCtx] iter : 1 (Remesh triggered) ->  old mesh : 1660 new mesh : 4404
+[bssnCtx] iter : 1 (Remesh triggered) ->  old mesh (zip nodes) : 335251 new mesh (zip nodes) : 914413
+[bssnCtx] iter : 2 (Remesh triggered) ->  old mesh : 4404 new mesh : 4131
+[bssnCtx] iter : 2 (Remesh triggered) ->  old mesh (zip nodes) : 914413 new mesh (zip nodes) : 855997
+[bssnCtx] iter : 3 (Remesh triggered) ->  old mesh : 4131 new mesh : 4467
+[bssnCtx] iter : 3 (Remesh triggered) ->  old mesh (zip nodes) : 855997 new mesh (zip nodes) : 926455
+[bssnCtx] iter : 4 (Remesh triggered) ->  old mesh : 4467 new mesh : 4369
+[bssnCtx] iter : 4 (Remesh triggered) ->  old mesh (zip nodes) : 926455 new mesh (zip nodes) : 902761
+[bssnCtx] iter : 5 (Remesh triggered) ->  old mesh : 4369 new mesh : 4670
+[bssnCtx] iter : 5 (Remesh triggered) ->  old mesh (zip nodes) : 902761 new mesh (zip nodes) : 966289
+[bssnCtx] iter : 6 (Remesh triggered) ->  old mesh : 4670 new mesh : 4390
+[bssnCtx] iter : 6 (Remesh triggered) ->  old mesh (zip nodes) : 966289 new mesh (zip nodes) : 906667
+[bssnCtx] iter : 7 (Remesh triggered) ->  old mesh : 4390 new mesh : 4670
+[bssnCtx] iter : 7 (Remesh triggered) ->  old mesh (zip nodes) : 906667 new mesh (zip nodes) : 966289
+================= Grid Info (After init grid converge):=======================================================
+lmin: 3 lmax:13
+[BLK_LEV_HIST] nblocks_total=4670 lmin=3 lmax=13
+[BLK_LEV_HIST] level=3 nblocks=448
+[BLK_LEV_HIST] level=4 nblocks=448
+[BLK_LEV_HIST] level=5 nblocks=448
+[BLK_LEV_HIST] level=6 nblocks=448
+[BLK_LEV_HIST] level=7 nblocks=432
+[BLK_LEV_HIST] level=8 nblocks=540
+[BLK_LEV_HIST] level=9 nblocks=680
+[BLK_LEV_HIST] level=10 nblocks=944
+[BLK_LEV_HIST] level=11 nblocks=112
+[BLK_LEV_HIST] level=12 nblocks=122
+[BLK_LEV_HIST] level=13 nblocks=48
+[BLK_LEV_HIST] LTS_work_ratio=sum_l N_l*2^l / (N_tot*2^Lmax) = 0.0701686  (ceiling on GTS/LTS step-work; smaller is better for LTS)
+[BLK_LEV_HIST] GTS_over_LTS_ceiling=14.2514
+
+## 4GPU refresh (c104-018, 2026-11-08)
+q4: N=4390 l=3-12 LTS_work_ratio=0.0937642 GTS/LTS_ceiling=10.665 ETS=4.41895s wall=17s
+q8: N=4670 l=3-13 LTS_work_ratio=0.0701686 GTS/LTS_ceiling=14.2514 ETS=8.93712s wall=23s
+(identical to 1GPU mesh_q{4,8}.log histograms)

@@ -165,6 +165,77 @@ void readParamFile(const char* fName, MPI_Comm comm) {
 
     // do this last: it needs every prefix the par may have overridden
     ensure_output_dirs(comm);
+
+    int rank = 0;
+    MPI_Comm_rank(comm, &rank);
+    resolveTPIDBareParameters(rank);
+}
+
+void resolveTPIDBareParameters(int rank) {
+    // Puncture momenta / spins already come from BSSN_BH{1,2}. Bare masses
+    // historically came from TPID_TARGET_M_* even with GIVE_BARE_MASS=1, which
+    // left q>1 pars with equal-mass TPID while BSSN_BH carried unequal masses.
+    if (TPID::give_bare_mass) {
+        TPID::par_m_plus     = BH1.getBHMass();
+        TPID::par_m_minus    = BH2.getBHMass();
+        // Keep TARGET_* mirrored so dumps / restarts show the bare values used.
+        TPID::target_M_plus  = TPID::par_m_plus;
+        TPID::target_M_minus = TPID::par_m_minus;
+    } else {
+        TPID::par_m_plus  = TPID::target_M_plus;
+        TPID::par_m_minus = TPID::target_M_minus;
+    }
+
+    if (rank != 0) return;
+
+    const double xp = TPID::center_offset[0] + TPID::par_b;
+    const double xm = TPID::center_offset[0] - TPID::par_b;
+    const double yp = TPID::center_offset[1];
+    const double ym = TPID::center_offset[1];
+    const double zp = TPID::center_offset[2];
+    const double zm = TPID::center_offset[2];
+    const double dx1 =
+        std::abs(BH1.getBHCoordX() - xp) + std::abs(BH1.getBHCoordY() - yp) +
+        std::abs(BH1.getBHCoordZ() - zp);
+    const double dx2 =
+        std::abs(BH2.getBHCoordX() - xm) + std::abs(BH2.getBHCoordY() - ym) +
+        std::abs(BH2.getBHCoordZ() - zm);
+
+    std::cout << "[TPID] resolved inversion vector (bare path="
+              << TPID::give_bare_mass << "):\n"
+              << "  m+=" << TPID::par_m_plus << "  m-=" << TPID::par_m_minus
+              << "\n"
+              << "  P+=(" << TPID::par_P_plus[0] << "," << TPID::par_P_plus[1]
+              << "," << TPID::par_P_plus[2] << ")"
+              << "  P-=(" << TPID::par_P_minus[0] << "," << TPID::par_P_minus[1]
+              << "," << TPID::par_P_minus[2] << ")\n"
+              << "  S+=(" << TPID::par_S_plus[0] << "," << TPID::par_S_plus[1]
+              << "," << TPID::par_S_plus[2] << ")"
+              << "  S-=(" << TPID::par_S_minus[0] << "," << TPID::par_S_minus[1]
+              << "," << TPID::par_S_minus[2] << ")\n"
+              << "  b=" << TPID::par_b << "  center_offset=("
+              << TPID::center_offset[0] << "," << TPID::center_offset[1] << ","
+              << TPID::center_offset[2] << ")\n"
+              << "  puncture_x=(+" << xp << ", " << xm << ")"
+              << "  Newton_maxit=" << TPID::Newton_maxit
+              << "  Newton_tol=" << TPID::Newton_tol << std::endl;
+
+    if (!TPID::give_bare_mass) {
+        std::cout
+            << "[TPID] WARNING: GIVE_BARE_MASS=0 keeps the ADM→bare iteration "
+               "inside the differentiated path; freeze GIVE_BARE_MASS=1 for "
+               "ensemble/SVN.\n";
+    }
+    // BH coords drive tracking/AMR; TP punctures sit at center_offset ± par_b.
+    // They need not match (RIT q1 uses BH at 3/-4 with b=4), but flag large
+    // mismatch so high-q COM setups are intentional.
+    constexpr double kGeomWarn = 1.0;  // M
+    if (dx1 > kGeomWarn || dx2 > kGeomWarn) {
+        std::cout << "[TPID] NOTE: BSSN_BH positions differ from TP punctures "
+                     "at center_offset±par_b by more than "
+                  << kGeomWarn << "M (d1=" << dx1 << " d2=" << dx2
+                  << "). Tracking uses BH; ID uses punctures.\n";
+    }
 }
 
 void readParamJSONFile(const char* fName, MPI_Comm comm) {
@@ -807,6 +878,10 @@ void dumpParamFile(std::ostream& sout, int root, MPI_Comm comm) {
         sout << YLW << "\tTPID_TARGET_M_PLUS :" << TPID::target_M_plus << NRM
              << std::endl;
         sout << YLW << "\tTPID_TARGET_M_MINUS :" << TPID::target_M_minus << NRM
+             << std::endl;
+        sout << YLW << "\tTPID_PAR_M_PLUS (bare) :" << TPID::par_m_plus << NRM
+             << std::endl;
+        sout << YLW << "\tTPID_PAR_M_MINUS (bare) :" << TPID::par_m_minus << NRM
              << std::endl;
         sout << YLW << "\tTPID_PAR_B :" << TPID::par_b << NRM << std::endl;
         sout << YLW << "\tTPID_PAR_P_PLUS : ( " << TPID::par_P_plus[0] << ", "

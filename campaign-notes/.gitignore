@@ -1,0 +1,29 @@
+# Large / regenerated artifacts — keep docs + scripts syncable
+*.log
+*.out
+*.err
+*.bin
+*.nsys-rep
+*.sqlite
+*.ncu-rep
+*.o
+*.a
+*.so
+*.dylib
+
+# Profiler dumps
+nsys/
+ncu/
+determinism/*.bin
+
+# Local scratch / node workdirs
+tier0/*.log
+tier0/node_*/
+tier0/.idev_watch_state
+
+# Editor / OS
+.DS_Store
+*.swp
+*~
+.vscode/
+.idea/

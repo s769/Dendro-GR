@@ -1,0 +1,131 @@
+host=c127-032.horizon.tacc.utexas.edu date=2026-11-08T16:36:29-06:00
+==== nblocks=64 ====
+number of cuda devices: 1
+OMP_NUM_THREADS=1
+nblocks=64
+
+Device Name: NVIDIA GB200
+Compute Capability: 10.0
+
+pt_async_gpu_time	0.0031
+pt_async_serialK_time	K=8	0.0266
+pt_async_ensK_time	K=8	0.0177
+pt_async_ensK_speedup	K=8	1.502
+pt_async_ensK_bitid_slots	K=8	mismatched_slots=0
+pt_async_kshare_time	K=8	0.0249
+pt_async_kshare_vs_ensK	K=8	0.711
+pt_async_kshare_vs_single	K=8	8.118
+pt_async_kshare_bitid_slots	K=8	mismatched_slots=0
+cpu_time	gpu_time	speedup
+0.4519	0.0074	60.88
+l_inf var U_ALPHA = 0
+l_inf var U_CHI = 1.86742e-16
+l_inf var U_K = 1.69615e-15
+l_inf var U_GT0 = 4.8898e-14
+l_inf var U_GT1 = 2.4395e-14
+l_inf var U_GT2 = 7.36407e-15
+l_inf var U_BETA0 = 0
+l_inf var U_BETA1 = 0
+l_inf var U_BETA2 = 0
+l_inf var U_B0 = 6.72913e-14
+l_inf var U_B1 = 2.4484e-14
+l_inf var U_B2 = 7.5395e-15
+l_inf var U_SYMGT0 = 1.80054e-16
+l_inf var U_SYMGT1 = 2.2204e-16
+l_inf var U_SYMGT2 = 1.72673e-16
+l_inf var U_SYMGT3 = 1.54591e-16
+l_inf var U_SYMGT4 = 1.73396e-16
+l_inf var U_SYMGT5 = 2.06025e-16
+l_inf var U_SYMAT0 = 1.19004e-15
+l_inf var U_SYMAT1 = 1.87558e-14
+l_inf var U_SYMAT2 = 5.58815e-15
+l_inf var U_SYMAT3 = 1.11183e-14
+l_inf var U_SYMAT4 = 2.89193e-14
+l_inf var U_SYMAT5 = 1.169e-15
+==== nblocks=256 ====
+number of cuda devices: 1
+OMP_NUM_THREADS=1
+nblocks=256
+
+Device Name: NVIDIA GB200
+Compute Capability: 10.0
+
+pt_async_gpu_time	0.0088
+pt_async_serialK_time	K=8	0.0644
+pt_async_ensK_time	K=8	0.0544
+pt_async_ensK_speedup	K=8	1.183
+pt_async_ensK_bitid_slots	K=8	mismatched_slots=0
+pt_async_kshare_time	K=8	0.0537
+pt_async_kshare_vs_ensK	K=8	1.013
+pt_async_kshare_vs_single	K=8	6.111
+pt_async_kshare_bitid_slots	K=8	mismatched_slots=0
+cpu_time	gpu_time	speedup
+1.8550	0.0159	116.97
+l_inf var U_ALPHA = 0
+l_inf var U_CHI = 1.86742e-16
+l_inf var U_K = 1.69615e-15
+l_inf var U_GT0 = 4.8898e-14
+l_inf var U_GT1 = 2.4395e-14
+l_inf var U_GT2 = 7.36407e-15
+l_inf var U_BETA0 = 0
+l_inf var U_BETA1 = 0
+l_inf var U_BETA2 = 0
+l_inf var U_B0 = 6.72913e-14
+l_inf var U_B1 = 2.4484e-14
+l_inf var U_B2 = 7.5395e-15
+l_inf var U_SYMGT0 = 1.80054e-16
+l_inf var U_SYMGT1 = 2.2204e-16
+l_inf var U_SYMGT2 = 1.72673e-16
+l_inf var U_SYMGT3 = 1.54591e-16
+l_inf var U_SYMGT4 = 1.73396e-16
+l_inf var U_SYMGT5 = 2.06025e-16
+l_inf var U_SYMAT0 = 1.19004e-15
+l_inf var U_SYMAT1 = 1.87558e-14
+l_inf var U_SYMAT2 = 5.58815e-15
+l_inf var U_SYMAT3 = 1.11183e-14
+l_inf var U_SYMAT4 = 2.89193e-14
+l_inf var U_SYMAT5 = 1.169e-15
+==== nblocks=2048 ====
+number of cuda devices: 1
+OMP_NUM_THREADS=1
+nblocks=2048
+
+Device Name: NVIDIA GB200
+Compute Capability: 10.0
+
+pt_async_gpu_time	0.0622
+pt_async_serialK_time	K=8	0.4003
+pt_async_ensK_time	K=8	0.3851
+pt_async_ensK_speedup	K=8	1.040
+pt_async_ensK_bitid_slots	K=8	mismatched_slots=0
+pt_async_kshare_time	K=8	0.3797
+pt_async_kshare_vs_ensK	K=8	1.014
+pt_async_kshare_vs_single	K=8	6.101
+pt_async_kshare_bitid_slots	K=8	mismatched_slots=0
+cpu_time	gpu_time	speedup
+15.9371	0.1085	146.84
+l_inf var U_ALPHA = 0
+l_inf var U_CHI = 1.86742e-16
+l_inf var U_K = 1.69615e-15
+l_inf var U_GT0 = 4.8898e-14
+l_inf var U_GT1 = 2.4395e-14
+l_inf var U_GT2 = 7.36407e-15
+l_inf var U_BETA0 = 0
+l_inf var U_BETA1 = 0
+l_inf var U_BETA2 = 0
+l_inf var U_B0 = 6.72913e-14
+l_inf var U_B1 = 2.4484e-14
+l_inf var U_B2 = 7.5395e-15
+l_inf var U_SYMGT0 = 1.80054e-16
+l_inf var U_SYMGT1 = 2.2204e-16
+l_inf var U_SYMGT2 = 1.72673e-16
+l_inf var U_SYMGT3 = 1.54591e-16
+l_inf var U_SYMGT4 = 1.73396e-16
+l_inf var U_SYMGT5 = 2.06025e-16
+l_inf var U_SYMAT0 = 1.19004e-15
+l_inf var U_SYMAT1 = 1.87558e-14
+l_inf var U_SYMAT2 = 5.58815e-15
+l_inf var U_SYMAT3 = 1.11183e-14
+l_inf var U_SYMAT4 = 2.89193e-14
+l_inf var U_SYMAT5 = 1.169e-15
+KSHARE_BENCH_DONE

@@ -1,0 +1,226 @@
+diff --git a/GPU/include/mesh_gpu.cuh b/GPU/include/mesh_gpu.cuh
+index 0808146..2b8fa79 100644
+--- a/GPU/include/mesh_gpu.cuh
++++ b/GPU/include/mesh_gpu.cuh
+@@ -10,6 +10,7 @@
+  */
+ 
+ #pragma once
++#include <cstdlib>
+ #include "asyncExchangeContex.h"
+ #include "device.h"
+ #include "mesh_gpu.h"
+@@ -1526,8 +1527,13 @@ GLOBAL_FUNC __launch_bounds__(64) void __unzip_cg__2(
+ 
+ template <typename T, DEVICE_UINT p, DEVICE_UINT PW>
+ GLOBAL_FUNC void __unzip_cg1__2(const MeshGPU* const dptr_mesh,
+-                                const T* const dptr_in, T* const dptr_out) {
+-    const DEVICE_UINT ele      = GPUDevice::block_id_x();
++                                const T* const dptr_in, T* const dptr_out,
++                                const DEVICE_UINT* ele_ids) {
++    // Optional remap: grid.x indexes into ele_ids (hanging/non-hanging split).
++    // Pass nullptr for contiguous [0, num_elements) launch.
++    const DEVICE_UINT ele =
++        (ele_ids != nullptr) ? ele_ids[GPUDevice::block_id_x()]
++                             : static_cast<DEVICE_UINT>(GPUDevice::block_id_x());
+     // const DEVICE_UINT blk_id = GPUDevice::block_id_y();
+     const DEVICE_UINT var      = GPUDevice::block_id_z();
+ 
+@@ -2462,14 +2468,40 @@ void MeshGPU::unzip_cg(const ot::Mesh* const pMesh,
+ 
+     assert(pMesh->getNumLocalMeshElements() ==
+            pMesh->getLocalBlockList().size());
+-    // dim3 gb  = dim3(m_unzip_grid[0],m_unzip_grid[1],dof);
+-    dim3 gb = dim3(m_unzip_grid[0], 1, dof);
+-    // dim3 gb1 = dim3(m_num_local_elements,1,dof);
+     dim3 tb = dim3(7, 7, 1);
+-    // printf("Grid : {%d, %d, %d} blocks. Blocks : {%d, %d, %d} threads.\n",
+-    // gb.x, gb.y, gb.z, tb.x, tb.y, tb.z);
+-    //__unzip_cg__2<T,6,3> <<<gb,tb,0,s>>> (dptr_mesh, dptr_in,dptr_out);
+-    __unzip_cg1__2<T, 6, 3><<<gb, tb, 0, s>>>(dptr_mesh, dptr_in, dptr_out);
++    // DENDRO_UNZIP_SPLIT:
++    //   1 = single launch over active (nmap>0) element IDs
++    //   2 = dual hang/nh launches (same kernel; usually hang-majority)
++    // Host MeshGPU fields — dptr_mesh is device-only.
++    const char* split_env = std::getenv("DENDRO_UNZIP_SPLIT");
++    const char mode =
++        (split_env && split_env[0] != '\0' && split_env[1] == '\0')
++            ? split_env[0]
++            : '0';
++
++    if (mode == '1' && this->m_ele_ids_active != nullptr &&
++        this->m_num_ele_active > 0) {
++        dim3 gb = dim3(this->m_num_ele_active, 1, dof);
++        __unzip_cg1__2<T, 6, 3><<<gb, tb, 0, s>>>(
++            dptr_mesh, dptr_in, dptr_out, this->m_ele_ids_active);
++    } else if (mode == '2' && this->m_ele_ids_hang != nullptr &&
++               this->m_ele_ids_nh != nullptr &&
++               (this->m_num_ele_hang + this->m_num_ele_nh) > 0) {
++        if (this->m_num_ele_nh > 0) {
++            dim3 gb = dim3(this->m_num_ele_nh, 1, dof);
++            __unzip_cg1__2<T, 6, 3><<<gb, tb, 0, s>>>(
++                dptr_mesh, dptr_in, dptr_out, this->m_ele_ids_nh);
++        }
++        if (this->m_num_ele_hang > 0) {
++            dim3 gb = dim3(this->m_num_ele_hang, 1, dof);
++            __unzip_cg1__2<T, 6, 3><<<gb, tb, 0, s>>>(
++                dptr_mesh, dptr_in, dptr_out, this->m_ele_ids_hang);
++        }
++    } else {
++        dim3 gb = dim3(m_unzip_grid[0], 1, dof);
++        __unzip_cg1__2<T, 6, 3><<<gb, tb, 0, s>>>(dptr_mesh, dptr_in, dptr_out,
++                                                    nullptr);
++    }
+ }
+ 
+ template <typename T, typename stream>
+diff --git a/GPU/src/mesh_gpu.cu b/GPU/src/mesh_gpu.cu
+index b3a068f..c3a43bf 100644
+--- a/GPU/src/mesh_gpu.cu
++++ b/GPU/src/mesh_gpu.cu
+@@ -275,6 +275,66 @@ MeshGPU* MeshGPU::alloc_mesh_on_device(const ot::Mesh* pMesh) {
+     GPUDevice::host_to_device_async<HangingInfo, cudaStream_t>(
+         hanging_info, this->m_hinfo, pNodes.size());
+ 
++    // Tier-2 unzip: active (nmap>0) element IDs + hang/nh subsets.
++    {
++        std::vector<DEVICE_UINT> active_ids;
++        std::vector<DEVICE_UINT> hang_ids;
++        std::vector<DEVICE_UINT> nh_ids;
++        active_ids.reserve(pNodes.size());
++        hang_ids.reserve(pNodes.size() / 4);
++        nh_ids.reserve(pNodes.size());
++        unsigned int skipped = 0;
++        for (unsigned int ele = 0; ele < pNodes.size(); ele++) {
++            const unsigned int nmap =
++                (ele < m2b_c.size()) ? m2b_c[ele] : 0u;
++            if (nmap == 0) {
++                skipped++;
++                continue;
++            }
++            active_ids.push_back(ele);
++            if (hanging_info[ele].hflag != 0)
++                hang_ids.push_back(ele);
++            else
++                nh_ids.push_back(ele);
++        }
++        this->m_num_ele_active = static_cast<DEVICE_UINT>(active_ids.size());
++        this->m_num_ele_hang   = static_cast<DEVICE_UINT>(hang_ids.size());
++        this->m_num_ele_nh     = static_cast<DEVICE_UINT>(nh_ids.size());
++        this->m_ele_ids_active =
++            GPUDevice::device_malloc<DEVICE_UINT>(active_ids.size() > 0
++                                                      ? active_ids.size()
++                                                      : 1);
++        this->m_ele_ids_hang =
++            GPUDevice::device_malloc<DEVICE_UINT>(hang_ids.size() > 0
++                                                      ? hang_ids.size()
++                                                      : 1);
++        this->m_ele_ids_nh =
++            GPUDevice::device_malloc<DEVICE_UINT>(nh_ids.size() > 0
++                                                      ? nh_ids.size()
++                                                      : 1);
++        if (!active_ids.empty())
++            GPUDevice::host_to_device_async<DEVICE_UINT, cudaStream_t>(
++                active_ids.data(), this->m_ele_ids_active, active_ids.size());
++        if (!hang_ids.empty())
++            GPUDevice::host_to_device_async<DEVICE_UINT, cudaStream_t>(
++                hang_ids.data(), this->m_ele_ids_hang, hang_ids.size());
++        if (!nh_ids.empty())
++            GPUDevice::host_to_device_async<DEVICE_UINT, cudaStream_t>(
++                nh_ids.data(), this->m_ele_ids_nh, nh_ids.size());
++        GPUDevice::host_to_device(this, dptr_mesh, 1);
++        if (pMesh->getMPIRank() == 0) {
++            const double hang_frac =
++                active_ids.empty()
++                    ? 0.0
++                    : (100.0 * static_cast<double>(hang_ids.size()) /
++                       static_cast<double>(active_ids.size()));
++            printf("[unzip-split] elements=%zu active=%zu skipped0=%u "
++                   "hang=%zu (%.1f%% of active) nh=%zu\n",
++                   pNodes.size(), active_ids.size(), skipped, hang_ids.size(),
++                   hang_frac, nh_ids.size());
++        }
++    }
++
+     const Point pt_min = pMesh->getDomainMinPt();
+     const Point pt_max = pMesh->getDomainMaxPt();
+ 
+@@ -352,10 +412,22 @@ void MeshGPU::dealloc_mesh_on_device(MeshGPU* dptr_mesh) {
+     GPUDevice::device_free<BlockGPU3D>(this->m_blk_list);
+     GPUDevice::device_free<TNode3d>(this->m_all_elements);
+     GPUDevice::device_free<HangingInfo>(this->m_hinfo);
++    if (this->m_ele_ids_active != nullptr)
++        GPUDevice::device_free<DEVICE_UINT>(this->m_ele_ids_active);
++    if (this->m_ele_ids_hang != nullptr)
++        GPUDevice::device_free<DEVICE_UINT>(this->m_ele_ids_hang);
++    if (this->m_ele_ids_nh != nullptr)
++        GPUDevice::device_free<DEVICE_UINT>(this->m_ele_ids_nh);
+ 
+     this->m_e2b_unzip_map        = nullptr;
+     this->m_e2b_unzip_map_count  = nullptr;
+     this->m_e2b_unzip_map_offset = nullptr;
++    this->m_ele_ids_active       = nullptr;
++    this->m_ele_ids_hang         = nullptr;
++    this->m_ele_ids_nh           = nullptr;
++    this->m_num_ele_active       = 0;
++    this->m_num_ele_hang         = 0;
++    this->m_num_ele_nh           = 0;
+ 
+     this->m_elem_send_sm         = nullptr;
+     this->m_elem_recv_sm         = nullptr;
+diff --git a/ODE/include/ctx.h b/ODE/include/ctx.h
+index ac7d0c2..2f491de 100644
+--- a/ODE/include/ctx.h
++++ b/ODE/include/ctx.h
+@@ -10,6 +10,7 @@
+  *
+  */
+ #pragma once
++#include <cstdlib>
+ #include <functional>
+ #include <iostream>
+ #include <vector>
+@@ -607,11 +608,23 @@ void Ctx<DerivedCtx, T, I>::unzip(ot::DVector<T, I>& in, ot::DVector<T, I>& out,
+             mesh_gpu->unzip_cg<DEVICE_REAL, cudaStream_t>(
+                 m_uiMesh, dptr_mesh, in_ptr + v_begin * sz_per_dof_zip,
+                 out_ptr + v_begin * sz_per_dof_uzip, batch_sz, 0);
+-            GPUDevice::device_synchronize();
++            // Default: defer device_synchronize until after all async_k
++            // batches so the GPU is not idle during the next MPI ghost wait.
++            // DENDRO_UNZIP_BATCH_SYNC=1 restores the old per-batch sync.
++            {
++                const char* bsync = std::getenv("DENDRO_UNZIP_BATCH_SYNC");
++                if (bsync && bsync[0] == '1' && bsync[1] == '\0')
++                    GPUDevice::device_synchronize();
++            }
+ #ifdef __PROFILE_CTX__
+             m_uiCtxpt[CTXPROFILE::UNZIP].stop();
+ #endif
+         }
++        {
++            const char* bsync = std::getenv("DENDRO_UNZIP_BATCH_SYNC");
++            if (!(bsync && bsync[0] == '1' && bsync[1] == '\0'))
++                GPUDevice::device_synchronize();
++        }
+ #endif
+     }
+ 
+diff --git a/include/mesh_gpu.h b/include/mesh_gpu.h
+index 8e711bd..5a274ca 100644
+--- a/include/mesh_gpu.h
++++ b/include/mesh_gpu.h
+@@ -131,6 +131,14 @@ class MeshGPU {
+     DEVICE_UINT* m_cg_recv_f              = nullptr;
+     HangingInfo* m_hinfo                  = nullptr;
+ 
++    /**@brief: Tier-2 unzip — active (nmap>0) element IDs; optional hang/nh */
++    DEVICE_UINT* m_ele_ids_active         = nullptr;
++    DEVICE_UINT* m_ele_ids_hang           = nullptr;
++    DEVICE_UINT* m_ele_ids_nh             = nullptr;
++    DEVICE_UINT m_num_ele_active          = 0;
++    DEVICE_UINT m_num_ele_hang            = 0;
++    DEVICE_UINT m_num_ele_nh              = 0;
++
+     DEVICE_UINT m_max_send_ele            = 1;
+     DEVICE_UINT m_max_recv_ele            = 1;
+ 

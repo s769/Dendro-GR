@@ -75,3 +75,4 @@ CMakeFiles/
 # test files
 CodeGen/test_*.cpp
 BSSN_GR/src/test_*.cpp
+.cursor/

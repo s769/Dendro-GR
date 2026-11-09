@@ -1,0 +1,34 @@
+number of cuda devices: 1
+OMP_NUM_THREADS=1
+nblocks=2048
+
+Device Name: NVIDIA GB200
+Compute Capability: 10.0
+
+f32c_gpu_time	0.0559
+cpu_time	gpu_time	speedup
+15.6732	0.1045	149.93
+l_inf var U_ALPHA = 4.2163e-08
+l_inf var U_CHI = 2.25546e-06
+l_inf var U_K = 2.3674e-10
+l_inf var U_GT0 = 4.22515e-06
+l_inf var U_GT1 = 7.86869e-07
+l_inf var U_GT2 = 1.05434e-06
+l_inf var U_BETA0 = 1.59802e-11
+l_inf var U_BETA1 = 1.05893e-09
+l_inf var U_BETA2 = 5.40365e-11
+l_inf var U_B0 = 2.0344e-05
+l_inf var U_B1 = 7.94705e-07
+l_inf var U_B2 = 1.07881e-06
+l_inf var U_SYMGT0 = 7.04035e-10
+l_inf var U_SYMGT1 = 2.06129e-09
+l_inf var U_SYMGT2 = 1.05524e-10
+l_inf var U_SYMGT3 = 6.57601e-10
+l_inf var U_SYMGT4 = 5.79619e-09
+l_inf var U_SYMGT5 = 6.72848e-10
+l_inf var U_SYMAT0 = 9.00244e-09
+l_inf var U_SYMAT1 = 9.25887e-08
+l_inf var U_SYMAT2 = 2.99223e-08
+l_inf var U_SYMAT3 = 1.29178e-07
+l_inf var U_SYMAT4 = 7.14059e-07
+l_inf var U_SYMAT5 = 1.13788e-08

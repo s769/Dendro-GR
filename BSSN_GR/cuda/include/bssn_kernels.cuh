@@ -18,11 +18,16 @@
 #include "bc_cu.cuh"
 #include <cuda_runtime_api.h> 
 #include <cfloat>
+#include <cstdlib>
+#include <vector>
 #include <cuda.h> 
 #include <cooperative_groups.h>
 // clang-format on
 
 namespace device {
+#include "derivs_f32.cuh"
+#include "derivs_f2d.cuh"
+#include "derivs_point.cuh"
 /**
  * @brief Launch the kernel to compute all the x-direction derivatives
  */
@@ -150,7 +155,7 @@ GLOBAL_FUNC void launch_dir_y_deriv_kernel(const DEVICE_REAL* const u,
 template <typename T>
 GLOBAL_FUNC __launch_bounds__(1024) void cuda_bssn_enforce_evar_cons(
     T* u, unsigned int lb, unsigned int le, T chi_floor, unsigned int szpdof,
-    double* min_det) {
+    double* block_mins) {
     const T CHI_FLOOR = chi_floor;
     double t_min_det  = DBL_MAX;
     const T one_third = 1.0 / 3.0;
@@ -328,14 +333,24 @@ GLOBAL_FUNC __launch_bounds__(1024) void cuda_bssn_enforce_evar_cons(
             uiVar[bssn::VAR::U_ALPHA][node] = CHI_FLOOR;
     }
 
-    // atomic min of the pre-enforcement det(gt) into *min_det
-    unsigned long long* const a = (unsigned long long*)min_det;
-    unsigned long long old      = *a;
-    while (t_min_det < __longlong_as_double((long long)old)) {
-        const unsigned long long assumed = old;
-        old = atomicCAS(
-            a, assumed, (unsigned long long)__double_as_longlong(t_min_det));
-        if (old == assumed) break;
+    // Order-fixed block reduction of pre-enforcement min det(gt).
+    // Each CTA writes one value to block_mins[blockIdx.x]; the host then
+    // folds block_mins[0..gridDim.x) in ascending block index
+    // (see BSSNCtxGPU::post_timestep). No atomics — bit-reproducible.
+    __shared__ double smin[32];  // one per warp (max 1024/32)
+    const unsigned int lane   = threadIdx.x & 31;
+    const unsigned int warp   = threadIdx.x >> 5;
+    const unsigned int nwarps = (blockDim.x + 31) >> 5;
+    for (int offset = 16; offset > 0; offset >>= 1)
+        t_min_det =
+            fmin(t_min_det, __shfl_down_sync(0xffffffff, t_min_det, offset));
+    if (lane == 0) smin[warp] = t_min_det;
+    __syncthreads();
+    if (warp == 0) {
+        double v = (lane < nwarps) ? smin[lane] : DBL_MAX;
+        for (int offset = 16; offset > 0; offset >>= 1)
+            v = fmin(v, __shfl_down_sync(0xffffffff, v, offset));
+        if (lane == 0 && block_mins) block_mins[blockIdx.x] = v;
     }
 }
 
@@ -1785,7 +1800,9 @@ HOST_FUNC void bssnrhs2(DEVICE_REAL* const dptr_Fu,
     return;
 }
 
-template <int pw, int nx, int pencil_sz>
+// bflag_sel: 0 = all blocks, 1 = interior only (m_bflag==0),
+//            2 = domain-boundary only (m_bflag!=0). Used by hybrid PT launch.
+template <int pw, int nx, int pencil_sz, int bflag_sel = 0>
 GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
     const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
@@ -1805,6 +1822,11 @@ GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3(
 
     BlockGPU3D c_blk                         = dptr_blk[Z_ID];
     const BlockGPU3D* __restrict__ const blk = &c_blk;
+    if constexpr (bflag_sel == 1) {
+        if (blk->m_bflag != 0) return;
+    } else if constexpr (bflag_sel == 2) {
+        if (blk->m_bflag == 0) return;
+    }
 
     const DEVICE_UINT offset                 = blk->m_offset;
     const DEVICE_UINT actual_nx              = blk->m_sz[0];
@@ -2040,6 +2062,1620 @@ GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3(
     return;
 }
 
+// ---- Point-wise fused FD (items 1–2): one su buffer, no Du/DDu passes ----
+// PreferL1 + lb(343,3): 0.137s @2048×20 (vs 0.171 baseline). lb(343,4) spilled more → 0.182s.
+template <int pw, int nx, int pencil_sz>
+GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_pt(
+    DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    DEVICE_REAL ko_sigma) {
+    extern __shared__ DEVICE_REAL shared_mem[];
+    DEVICE_REAL* su = shared_mem;
+    // Du/DDu unused — kept as nullptr aliases so any leftover refs fail loudly
+    // at compile time rather than silently. gauge6_point.cpp does not use them.
+    (void)pencil_sz;
+
+    const DEVICE_UINT sz_per_dof             = szpdof_uz;
+    const DEVICE_UINT lambda[4]              = {1, 1, 1, 1};
+    const DEVICE_REAL lambda_f[2]            = {1.0, 0.0};
+    const DEVICE_INT Z_ID                    = GPUDevice::block_id_x();
+
+    BlockGPU3D c_blk                         = dptr_blk[Z_ID];
+    const BlockGPU3D* __restrict__ const blk = &c_blk;
+    // PT fused FD is interior-only; domain-boundary blocks need stock
+    // one-sided 644/KO stencils (see __blk1_deriv644_* bflag overrides).
+    if (blk->m_bflag != 0) return;
+
+    const DEVICE_UINT offset                 = blk->m_offset;
+    const DEVICE_UINT actual_nx              = blk->m_sz[0];
+    const DEVICE_UINT BLK_SZ                 = nx * nx * nx;
+    const int pencils                        = pencil_sz;
+    (void)actual_nx;
+    (void)BLK_SZ;
+    (void)pencils;
+
+    DEVICE_REAL* __restrict__ const a_rhs =
+        &dptr_Fu[bssn::VAR::U_ALPHA * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const chi_rhs =
+        &dptr_Fu[bssn::VAR::U_CHI * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs00 =
+        &dptr_Fu[bssn::VAR::U_SYMGT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs01 =
+        &dptr_Fu[bssn::VAR::U_SYMGT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs02 =
+        &dptr_Fu[bssn::VAR::U_SYMGT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs11 =
+        &dptr_Fu[bssn::VAR::U_SYMGT3 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs12 =
+        &dptr_Fu[bssn::VAR::U_SYMGT4 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs22 =
+        &dptr_Fu[bssn::VAR::U_SYMGT5 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs0 =
+        &dptr_Fu[bssn::VAR::U_BETA0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs1 =
+        &dptr_Fu[bssn::VAR::U_BETA1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs2 =
+        &dptr_Fu[bssn::VAR::U_BETA2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs00 =
+        &dptr_Fu[bssn::VAR::U_SYMAT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs01 =
+        &dptr_Fu[bssn::VAR::U_SYMAT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs02 =
+        &dptr_Fu[bssn::VAR::U_SYMAT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs11 =
+        &dptr_Fu[bssn::VAR::U_SYMAT3 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs12 =
+        &dptr_Fu[bssn::VAR::U_SYMAT4 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs22 =
+        &dptr_Fu[bssn::VAR::U_SYMAT5 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs0 =
+        &dptr_Fu[bssn::VAR::U_GT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs1 =
+        &dptr_Fu[bssn::VAR::U_GT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs2 =
+        &dptr_Fu[bssn::VAR::U_GT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs0 =
+        &dptr_Fu[bssn::VAR::U_B0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs1 =
+        &dptr_Fu[bssn::VAR::U_B1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs2 =
+        &dptr_Fu[bssn::VAR::U_B2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const K_rhs =
+        &dptr_Fu[bssn::VAR::U_K * sz_per_dof + offset];
+
+    const DEVICE_REAL* __restrict__ const alpha =
+        (dptr_u + bssn::VAR::U_ALPHA * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const chi =
+        (dptr_u + bssn::VAR::U_CHI * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const K =
+        (dptr_u + bssn::VAR::U_K * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt0 =
+        (dptr_u + bssn::VAR::U_SYMGT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt1 =
+        (dptr_u + bssn::VAR::U_SYMGT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt2 =
+        (dptr_u + bssn::VAR::U_SYMGT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt3 =
+        (dptr_u + bssn::VAR::U_SYMGT3 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt4 =
+        (dptr_u + bssn::VAR::U_SYMGT4 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt5 =
+        (dptr_u + bssn::VAR::U_SYMGT5 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta0 =
+        (dptr_u + bssn::VAR::U_BETA0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta1 =
+        (dptr_u + bssn::VAR::U_BETA1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta2 =
+        (dptr_u + bssn::VAR::U_BETA2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At0 =
+        (dptr_u + bssn::VAR::U_SYMAT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At1 =
+        (dptr_u + bssn::VAR::U_SYMAT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At2 =
+        (dptr_u + bssn::VAR::U_SYMAT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At3 =
+        (dptr_u + bssn::VAR::U_SYMAT3 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At4 =
+        (dptr_u + bssn::VAR::U_SYMAT4 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At5 =
+        (dptr_u + bssn::VAR::U_SYMAT5 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt0 =
+        (dptr_u + bssn::VAR::U_GT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt1 =
+        (dptr_u + bssn::VAR::U_GT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt2 =
+        (dptr_u + bssn::VAR::U_GT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B0 =
+        (dptr_u + bssn::VAR::U_B0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B1 =
+        (dptr_u + bssn::VAR::U_B1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B2 =
+        (dptr_u + bssn::VAR::U_B2 * sz_per_dof + offset);
+
+    const DEVICE_INT i  = GPUDevice::thread_id_x() + pw;
+    const DEVICE_INT j  = GPUDevice::thread_id_y() + pw;
+    const DEVICE_INT k  = GPUDevice::thread_id_z() + pw;
+    const int gidx      = (k * nx + j) * nx + i;
+    const DEVICE_INT pp = gidx;
+
+    const DEVICE_REAL hx = blk->m_dx[0];
+    const DEVICE_REAL x  = blk->m_ptMin[0] + i * hx;
+    const DEVICE_REAL y  = blk->m_ptMin[1] + j * blk->m_dx[1];
+    const DEVICE_REAL z  = blk->m_ptMin[2] + k * blk->m_dx[2];
+    const DEVICE_REAL RIT_ETA_OUTER   = 0.25;
+    const DEVICE_REAL RIT_ETA_CENTRAL = 2.0;
+    const DEVICE_REAL RIT_ETA_WIDTH   = 40.0;
+    const DEVICE_REAL r_coord         = sqrt(x * x + y * y + z * z);
+    const DEVICE_REAL w               = r_coord / RIT_ETA_WIDTH;
+    const DEVICE_REAL arg             = -w * w * w * w;
+    const DEVICE_REAL eta =
+        (RIT_ETA_CENTRAL - RIT_ETA_OUTER) * exp(arg) + RIT_ETA_OUTER;
+
+#include "../scripts/gauge6_point.cpp"
+}
+
+// Global-memory point FD (no shared tile). NCU: PT_ASYNC smem-bound at 1
+// blk/SM (17% occ). Zero smem → register limit (~3 blk/SM).
+template <int pw, int nx, int pencil_sz>
+GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_pt_gmem(
+    DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    DEVICE_REAL ko_sigma) {
+    (void)pencil_sz;
+    (void)nblocks;
+    const DEVICE_UINT sz_per_dof             = szpdof_uz;
+    const DEVICE_UINT lambda[4]              = {1, 1, 1, 1};
+    const DEVICE_REAL lambda_f[2]            = {1.0, 0.0};
+    const DEVICE_INT Z_ID                    = GPUDevice::block_id_x();
+
+    BlockGPU3D c_blk                         = dptr_blk[Z_ID];
+    const BlockGPU3D* __restrict__ const blk = &c_blk;
+    if (blk->m_bflag != 0) return;
+
+    const DEVICE_UINT offset = blk->m_offset;
+
+    DEVICE_REAL* __restrict__ const a_rhs =
+        &dptr_Fu[bssn::VAR::U_ALPHA * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const chi_rhs =
+        &dptr_Fu[bssn::VAR::U_CHI * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs00 =
+        &dptr_Fu[bssn::VAR::U_SYMGT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs01 =
+        &dptr_Fu[bssn::VAR::U_SYMGT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs02 =
+        &dptr_Fu[bssn::VAR::U_SYMGT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs11 =
+        &dptr_Fu[bssn::VAR::U_SYMGT3 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs12 =
+        &dptr_Fu[bssn::VAR::U_SYMGT4 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs22 =
+        &dptr_Fu[bssn::VAR::U_SYMGT5 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs0 =
+        &dptr_Fu[bssn::VAR::U_BETA0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs1 =
+        &dptr_Fu[bssn::VAR::U_BETA1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs2 =
+        &dptr_Fu[bssn::VAR::U_BETA2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs00 =
+        &dptr_Fu[bssn::VAR::U_SYMAT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs01 =
+        &dptr_Fu[bssn::VAR::U_SYMAT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs02 =
+        &dptr_Fu[bssn::VAR::U_SYMAT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs11 =
+        &dptr_Fu[bssn::VAR::U_SYMAT3 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs12 =
+        &dptr_Fu[bssn::VAR::U_SYMAT4 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs22 =
+        &dptr_Fu[bssn::VAR::U_SYMAT5 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs0 =
+        &dptr_Fu[bssn::VAR::U_GT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs1 =
+        &dptr_Fu[bssn::VAR::U_GT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs2 =
+        &dptr_Fu[bssn::VAR::U_GT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs0 =
+        &dptr_Fu[bssn::VAR::U_B0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs1 =
+        &dptr_Fu[bssn::VAR::U_B1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs2 =
+        &dptr_Fu[bssn::VAR::U_B2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const K_rhs =
+        &dptr_Fu[bssn::VAR::U_K * sz_per_dof + offset];
+
+    const DEVICE_REAL* __restrict__ const alpha =
+        (dptr_u + bssn::VAR::U_ALPHA * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const chi =
+        (dptr_u + bssn::VAR::U_CHI * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const K =
+        (dptr_u + bssn::VAR::U_K * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt0 =
+        (dptr_u + bssn::VAR::U_SYMGT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt1 =
+        (dptr_u + bssn::VAR::U_SYMGT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt2 =
+        (dptr_u + bssn::VAR::U_SYMGT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt3 =
+        (dptr_u + bssn::VAR::U_SYMGT3 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt4 =
+        (dptr_u + bssn::VAR::U_SYMGT4 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt5 =
+        (dptr_u + bssn::VAR::U_SYMGT5 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta0 =
+        (dptr_u + bssn::VAR::U_BETA0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta1 =
+        (dptr_u + bssn::VAR::U_BETA1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta2 =
+        (dptr_u + bssn::VAR::U_BETA2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At0 =
+        (dptr_u + bssn::VAR::U_SYMAT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At1 =
+        (dptr_u + bssn::VAR::U_SYMAT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At2 =
+        (dptr_u + bssn::VAR::U_SYMAT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At3 =
+        (dptr_u + bssn::VAR::U_SYMAT3 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At4 =
+        (dptr_u + bssn::VAR::U_SYMAT4 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At5 =
+        (dptr_u + bssn::VAR::U_SYMAT5 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt0 =
+        (dptr_u + bssn::VAR::U_GT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt1 =
+        (dptr_u + bssn::VAR::U_GT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt2 =
+        (dptr_u + bssn::VAR::U_GT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B0 =
+        (dptr_u + bssn::VAR::U_B0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B1 =
+        (dptr_u + bssn::VAR::U_B1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B2 =
+        (dptr_u + bssn::VAR::U_B2 * sz_per_dof + offset);
+
+    const DEVICE_INT i  = GPUDevice::thread_id_x() + pw;
+    const DEVICE_INT j  = GPUDevice::thread_id_y() + pw;
+    const DEVICE_INT k  = GPUDevice::thread_id_z() + pw;
+    const int gidx      = (k * nx + j) * nx + i;
+    const DEVICE_INT pp = gidx;
+
+    const DEVICE_REAL hx = blk->m_dx[0];
+    const DEVICE_REAL x  = blk->m_ptMin[0] + i * hx;
+    const DEVICE_REAL y  = blk->m_ptMin[1] + j * blk->m_dx[1];
+    const DEVICE_REAL z  = blk->m_ptMin[2] + k * blk->m_dx[2];
+    const DEVICE_REAL RIT_ETA_OUTER   = 0.25;
+    const DEVICE_REAL RIT_ETA_CENTRAL = 2.0;
+    const DEVICE_REAL RIT_ETA_WIDTH   = 40.0;
+    const DEVICE_REAL r_coord         = sqrt(x * x + y * y + z * z);
+    const DEVICE_REAL w               = r_coord / RIT_ETA_WIDTH;
+    const DEVICE_REAL arg             = -w * w * w * w;
+    const DEVICE_REAL eta =
+        (RIT_ETA_CENTRAL - RIT_ETA_OUTER) * exp(arg) + RIT_ETA_OUTER;
+
+#include "../scripts/gauge6_point_gmem.cpp"
+}
+
+// PT fused FD on centered float shared tile only (~8.8KB).
+// PreferShared → register-limited 3 blk/SM (~45% occ). lb minBlocks=4 spills worse.
+template <int pw, int nx, int pencil_sz>
+GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_pt_f32su(
+    DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    DEVICE_REAL ko_sigma) {
+    extern __shared__ DEVICE_REAL shared_mem[];
+    float* su = reinterpret_cast<float*>(shared_mem);
+    (void)pencil_sz;
+    (void)nblocks;
+
+    const DEVICE_UINT sz_per_dof             = szpdof_uz;
+    const DEVICE_UINT lambda[4]              = {1, 1, 1, 1};
+    const DEVICE_REAL lambda_f[2]            = {1.0, 0.0};
+    const DEVICE_INT Z_ID                    = GPUDevice::block_id_x();
+
+    BlockGPU3D c_blk                         = dptr_blk[Z_ID];
+    const BlockGPU3D* __restrict__ const blk = &c_blk;
+    if (blk->m_bflag != 0) return;
+
+    const DEVICE_UINT offset = blk->m_offset;
+
+    DEVICE_REAL* __restrict__ const a_rhs =
+        &dptr_Fu[bssn::VAR::U_ALPHA * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const chi_rhs =
+        &dptr_Fu[bssn::VAR::U_CHI * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs00 =
+        &dptr_Fu[bssn::VAR::U_SYMGT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs01 =
+        &dptr_Fu[bssn::VAR::U_SYMGT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs02 =
+        &dptr_Fu[bssn::VAR::U_SYMGT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs11 =
+        &dptr_Fu[bssn::VAR::U_SYMGT3 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs12 =
+        &dptr_Fu[bssn::VAR::U_SYMGT4 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs22 =
+        &dptr_Fu[bssn::VAR::U_SYMGT5 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs0 =
+        &dptr_Fu[bssn::VAR::U_BETA0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs1 =
+        &dptr_Fu[bssn::VAR::U_BETA1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs2 =
+        &dptr_Fu[bssn::VAR::U_BETA2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs00 =
+        &dptr_Fu[bssn::VAR::U_SYMAT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs01 =
+        &dptr_Fu[bssn::VAR::U_SYMAT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs02 =
+        &dptr_Fu[bssn::VAR::U_SYMAT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs11 =
+        &dptr_Fu[bssn::VAR::U_SYMAT3 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs12 =
+        &dptr_Fu[bssn::VAR::U_SYMAT4 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs22 =
+        &dptr_Fu[bssn::VAR::U_SYMAT5 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs0 =
+        &dptr_Fu[bssn::VAR::U_GT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs1 =
+        &dptr_Fu[bssn::VAR::U_GT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs2 =
+        &dptr_Fu[bssn::VAR::U_GT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs0 =
+        &dptr_Fu[bssn::VAR::U_B0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs1 =
+        &dptr_Fu[bssn::VAR::U_B1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs2 =
+        &dptr_Fu[bssn::VAR::U_B2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const K_rhs =
+        &dptr_Fu[bssn::VAR::U_K * sz_per_dof + offset];
+
+    const DEVICE_REAL* __restrict__ const alpha =
+        (dptr_u + bssn::VAR::U_ALPHA * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const chi =
+        (dptr_u + bssn::VAR::U_CHI * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const K =
+        (dptr_u + bssn::VAR::U_K * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt0 =
+        (dptr_u + bssn::VAR::U_SYMGT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt1 =
+        (dptr_u + bssn::VAR::U_SYMGT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt2 =
+        (dptr_u + bssn::VAR::U_SYMGT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt3 =
+        (dptr_u + bssn::VAR::U_SYMGT3 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt4 =
+        (dptr_u + bssn::VAR::U_SYMGT4 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt5 =
+        (dptr_u + bssn::VAR::U_SYMGT5 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta0 =
+        (dptr_u + bssn::VAR::U_BETA0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta1 =
+        (dptr_u + bssn::VAR::U_BETA1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta2 =
+        (dptr_u + bssn::VAR::U_BETA2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At0 =
+        (dptr_u + bssn::VAR::U_SYMAT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At1 =
+        (dptr_u + bssn::VAR::U_SYMAT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At2 =
+        (dptr_u + bssn::VAR::U_SYMAT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At3 =
+        (dptr_u + bssn::VAR::U_SYMAT3 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At4 =
+        (dptr_u + bssn::VAR::U_SYMAT4 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At5 =
+        (dptr_u + bssn::VAR::U_SYMAT5 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt0 =
+        (dptr_u + bssn::VAR::U_GT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt1 =
+        (dptr_u + bssn::VAR::U_GT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt2 =
+        (dptr_u + bssn::VAR::U_GT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B0 =
+        (dptr_u + bssn::VAR::U_B0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B1 =
+        (dptr_u + bssn::VAR::U_B1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B2 =
+        (dptr_u + bssn::VAR::U_B2 * sz_per_dof + offset);
+
+    const DEVICE_INT i  = GPUDevice::thread_id_x() + pw;
+    const DEVICE_INT j  = GPUDevice::thread_id_y() + pw;
+    const DEVICE_INT k  = GPUDevice::thread_id_z() + pw;
+    const int gidx      = (k * nx + j) * nx + i;
+    const DEVICE_INT pp = gidx;
+
+    const DEVICE_REAL hx = blk->m_dx[0];
+    const DEVICE_REAL x  = blk->m_ptMin[0] + i * hx;
+    const DEVICE_REAL y  = blk->m_ptMin[1] + j * blk->m_dx[1];
+    const DEVICE_REAL z  = blk->m_ptMin[2] + k * blk->m_dx[2];
+    const DEVICE_REAL RIT_ETA_OUTER   = 0.25;
+    const DEVICE_REAL RIT_ETA_CENTRAL = 2.0;
+    const DEVICE_REAL RIT_ETA_WIDTH   = 40.0;
+    const DEVICE_REAL r_coord         = sqrt(x * x + y * y + z * z);
+    const DEVICE_REAL w               = r_coord / RIT_ETA_WIDTH;
+    const DEVICE_REAL arg             = -w * w * w * w;
+    const DEVICE_REAL eta =
+        (RIT_ETA_CENTRAL - RIT_ETA_OUTER) * exp(arg) + RIT_ETA_OUTER;
+
+#include "../scripts/gauge6_point_f32su.cpp"
+}
+
+// cp.async load (issue+wait, no double-buffer overlap yet).
+// K_share==0: v1 ensemble via grid.y (one CTA per (block,member)).
+// K_share>=1: Tier 1.3 v2 — one CTA per mesh block; loop members, reuse
+// block geometry / dx / eta (still K algebra + smem tile passes).
+template <int pw, int nx, int pencil_sz>
+GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_pt_async(
+    DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    DEVICE_REAL ko_sigma, DEVICE_UINT K_share) {
+    extern __shared__ DEVICE_REAL shared_mem[];
+    DEVICE_REAL* su = shared_mem;
+    // Du/DDu unused — kept as nullptr aliases so any leftover refs fail loudly
+    // at compile time rather than silently. gauge6_point_async.cpp does not use them.
+    (void)pencil_sz;
+    (void)nblocks;
+
+    const DEVICE_UINT sz_per_dof             = szpdof_uz;
+    const DEVICE_UINT lambda[4]              = {1, 1, 1, 1};
+    const DEVICE_REAL lambda_f[2]            = {1.0, 0.0};
+    const DEVICE_INT Z_ID                    = GPUDevice::block_id_x();
+
+    BlockGPU3D c_blk                         = dptr_blk[Z_ID];
+    const BlockGPU3D* __restrict__ const blk = &c_blk;
+    // PT fused FD is interior-only; domain-boundary blocks need stock
+    // one-sided 644/KO stencils (see __blk1_deriv644_* bflag overrides).
+    if (blk->m_bflag != 0) return;
+
+    const DEVICE_UINT offset                 = blk->m_offset;
+    const DEVICE_UINT actual_nx              = blk->m_sz[0];
+    const DEVICE_UINT BLK_SZ                 = nx * nx * nx;
+    const int pencils                        = pencil_sz;
+    (void)actual_nx;
+    (void)BLK_SZ;
+    (void)pencils;
+
+    const DEVICE_INT i  = GPUDevice::thread_id_x() + pw;
+    const DEVICE_INT j  = GPUDevice::thread_id_y() + pw;
+    const DEVICE_INT k  = GPUDevice::thread_id_z() + pw;
+    const int gidx      = (k * nx + j) * nx + i;
+    const DEVICE_INT pp = gidx;
+
+    const DEVICE_REAL hx = blk->m_dx[0];
+    const DEVICE_REAL x  = blk->m_ptMin[0] + i * hx;
+    const DEVICE_REAL y  = blk->m_ptMin[1] + j * blk->m_dx[1];
+    const DEVICE_REAL z  = blk->m_ptMin[2] + k * blk->m_dx[2];
+    const DEVICE_REAL RIT_ETA_OUTER   = 0.25;
+    const DEVICE_REAL RIT_ETA_CENTRAL = 2.0;
+    const DEVICE_REAL RIT_ETA_WIDTH   = 40.0;
+    const DEVICE_REAL r_coord         = sqrt(x * x + y * y + z * z);
+    const DEVICE_REAL w               = r_coord / RIT_ETA_WIDTH;
+    const DEVICE_REAL arg             = -w * w * w * w;
+    const DEVICE_REAL eta =
+        (RIT_ETA_CENTRAL - RIT_ETA_OUTER) * exp(arg) + RIT_ETA_OUTER;
+
+    const DEVICE_UINT Kloop =
+        (K_share > 0) ? K_share : static_cast<DEVICE_UINT>(1);
+    const DEVICE_UINT kbase =
+        (K_share > 0) ? static_cast<DEVICE_UINT>(0) : GPUDevice::block_id_y();
+
+    for (DEVICE_UINT ki = 0; ki < Kloop; ++ki) {
+        const DEVICE_UINT kmem = (K_share > 0) ? ki : kbase;
+        DEVICE_REAL* const Fu =
+            dptr_Fu + kmem * bssn::BSSN_NUM_VARS * sz_per_dof;
+        const DEVICE_REAL* const u =
+            dptr_u + kmem * bssn::BSSN_NUM_VARS * sz_per_dof;
+
+        DEVICE_REAL* __restrict__ const a_rhs =
+            &Fu[bssn::VAR::U_ALPHA * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const chi_rhs =
+            &Fu[bssn::VAR::U_CHI * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const gt_rhs00 =
+            &Fu[bssn::VAR::U_SYMGT0 * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const gt_rhs01 =
+            &Fu[bssn::VAR::U_SYMGT1 * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const gt_rhs02 =
+            &Fu[bssn::VAR::U_SYMGT2 * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const gt_rhs11 =
+            &Fu[bssn::VAR::U_SYMGT3 * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const gt_rhs12 =
+            &Fu[bssn::VAR::U_SYMGT4 * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const gt_rhs22 =
+            &Fu[bssn::VAR::U_SYMGT5 * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const b_rhs0 =
+            &Fu[bssn::VAR::U_BETA0 * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const b_rhs1 =
+            &Fu[bssn::VAR::U_BETA1 * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const b_rhs2 =
+            &Fu[bssn::VAR::U_BETA2 * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const At_rhs00 =
+            &Fu[bssn::VAR::U_SYMAT0 * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const At_rhs01 =
+            &Fu[bssn::VAR::U_SYMAT1 * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const At_rhs02 =
+            &Fu[bssn::VAR::U_SYMAT2 * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const At_rhs11 =
+            &Fu[bssn::VAR::U_SYMAT3 * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const At_rhs12 =
+            &Fu[bssn::VAR::U_SYMAT4 * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const At_rhs22 =
+            &Fu[bssn::VAR::U_SYMAT5 * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const Gt_rhs0 =
+            &Fu[bssn::VAR::U_GT0 * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const Gt_rhs1 =
+            &Fu[bssn::VAR::U_GT1 * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const Gt_rhs2 =
+            &Fu[bssn::VAR::U_GT2 * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const B_rhs0 =
+            &Fu[bssn::VAR::U_B0 * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const B_rhs1 =
+            &Fu[bssn::VAR::U_B1 * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const B_rhs2 =
+            &Fu[bssn::VAR::U_B2 * sz_per_dof + offset];
+        DEVICE_REAL* __restrict__ const K_rhs =
+            &Fu[bssn::VAR::U_K * sz_per_dof + offset];
+
+        const DEVICE_REAL* __restrict__ const alpha =
+            (u + bssn::VAR::U_ALPHA * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const chi =
+            (u + bssn::VAR::U_CHI * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const K =
+            (u + bssn::VAR::U_K * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const gt0 =
+            (u + bssn::VAR::U_SYMGT0 * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const gt1 =
+            (u + bssn::VAR::U_SYMGT1 * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const gt2 =
+            (u + bssn::VAR::U_SYMGT2 * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const gt3 =
+            (u + bssn::VAR::U_SYMGT3 * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const gt4 =
+            (u + bssn::VAR::U_SYMGT4 * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const gt5 =
+            (u + bssn::VAR::U_SYMGT5 * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const beta0 =
+            (u + bssn::VAR::U_BETA0 * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const beta1 =
+            (u + bssn::VAR::U_BETA1 * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const beta2 =
+            (u + bssn::VAR::U_BETA2 * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const At0 =
+            (u + bssn::VAR::U_SYMAT0 * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const At1 =
+            (u + bssn::VAR::U_SYMAT1 * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const At2 =
+            (u + bssn::VAR::U_SYMAT2 * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const At3 =
+            (u + bssn::VAR::U_SYMAT3 * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const At4 =
+            (u + bssn::VAR::U_SYMAT4 * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const At5 =
+            (u + bssn::VAR::U_SYMAT5 * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const Gt0 =
+            (u + bssn::VAR::U_GT0 * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const Gt1 =
+            (u + bssn::VAR::U_GT1 * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const Gt2 =
+            (u + bssn::VAR::U_GT2 * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const B0 =
+            (u + bssn::VAR::U_B0 * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const B1 =
+            (u + bssn::VAR::U_B1 * sz_per_dof + offset);
+        const DEVICE_REAL* __restrict__ const B2 =
+            (u + bssn::VAR::U_B2 * sz_per_dof + offset);
+
+#include "../scripts/gauge6_point_async.cpp"
+        __syncthreads();  // separate member passes that reuse su
+    }
+}
+
+// Double-buffered cp.async: prefetch v+1 into idle su while algebra for v runs.
+template <int pw, int nx, int pencil_sz>
+GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_pt_db(
+    DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    DEVICE_REAL ko_sigma) {
+    extern __shared__ DEVICE_REAL shared_mem[];
+    DEVICE_REAL* su = shared_mem;  // su0; su1 = su + nx^3 (see gauge6_point_db)
+    (void)pencil_sz;
+
+    const DEVICE_UINT sz_per_dof             = szpdof_uz;
+    const DEVICE_UINT lambda[4]              = {1, 1, 1, 1};
+    const DEVICE_REAL lambda_f[2]            = {1.0, 0.0};
+    const DEVICE_INT Z_ID                    = GPUDevice::block_id_x();
+
+    BlockGPU3D c_blk                         = dptr_blk[Z_ID];
+    const BlockGPU3D* __restrict__ const blk = &c_blk;
+    // PT fused FD is interior-only; domain-boundary blocks need stock
+    // one-sided 644/KO stencils (see __blk1_deriv644_* bflag overrides).
+    if (blk->m_bflag != 0) return;
+
+    const DEVICE_UINT offset                 = blk->m_offset;
+    const DEVICE_UINT actual_nx              = blk->m_sz[0];
+    const DEVICE_UINT BLK_SZ                 = nx * nx * nx;
+    const int pencils                        = pencil_sz;
+    (void)actual_nx;
+    (void)BLK_SZ;
+    (void)pencils;
+
+    DEVICE_REAL* __restrict__ const a_rhs =
+        &dptr_Fu[bssn::VAR::U_ALPHA * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const chi_rhs =
+        &dptr_Fu[bssn::VAR::U_CHI * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs00 =
+        &dptr_Fu[bssn::VAR::U_SYMGT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs01 =
+        &dptr_Fu[bssn::VAR::U_SYMGT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs02 =
+        &dptr_Fu[bssn::VAR::U_SYMGT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs11 =
+        &dptr_Fu[bssn::VAR::U_SYMGT3 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs12 =
+        &dptr_Fu[bssn::VAR::U_SYMGT4 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs22 =
+        &dptr_Fu[bssn::VAR::U_SYMGT5 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs0 =
+        &dptr_Fu[bssn::VAR::U_BETA0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs1 =
+        &dptr_Fu[bssn::VAR::U_BETA1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs2 =
+        &dptr_Fu[bssn::VAR::U_BETA2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs00 =
+        &dptr_Fu[bssn::VAR::U_SYMAT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs01 =
+        &dptr_Fu[bssn::VAR::U_SYMAT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs02 =
+        &dptr_Fu[bssn::VAR::U_SYMAT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs11 =
+        &dptr_Fu[bssn::VAR::U_SYMAT3 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs12 =
+        &dptr_Fu[bssn::VAR::U_SYMAT4 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs22 =
+        &dptr_Fu[bssn::VAR::U_SYMAT5 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs0 =
+        &dptr_Fu[bssn::VAR::U_GT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs1 =
+        &dptr_Fu[bssn::VAR::U_GT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs2 =
+        &dptr_Fu[bssn::VAR::U_GT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs0 =
+        &dptr_Fu[bssn::VAR::U_B0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs1 =
+        &dptr_Fu[bssn::VAR::U_B1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs2 =
+        &dptr_Fu[bssn::VAR::U_B2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const K_rhs =
+        &dptr_Fu[bssn::VAR::U_K * sz_per_dof + offset];
+
+    const DEVICE_REAL* __restrict__ const alpha =
+        (dptr_u + bssn::VAR::U_ALPHA * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const chi =
+        (dptr_u + bssn::VAR::U_CHI * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const K =
+        (dptr_u + bssn::VAR::U_K * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt0 =
+        (dptr_u + bssn::VAR::U_SYMGT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt1 =
+        (dptr_u + bssn::VAR::U_SYMGT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt2 =
+        (dptr_u + bssn::VAR::U_SYMGT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt3 =
+        (dptr_u + bssn::VAR::U_SYMGT3 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt4 =
+        (dptr_u + bssn::VAR::U_SYMGT4 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt5 =
+        (dptr_u + bssn::VAR::U_SYMGT5 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta0 =
+        (dptr_u + bssn::VAR::U_BETA0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta1 =
+        (dptr_u + bssn::VAR::U_BETA1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta2 =
+        (dptr_u + bssn::VAR::U_BETA2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At0 =
+        (dptr_u + bssn::VAR::U_SYMAT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At1 =
+        (dptr_u + bssn::VAR::U_SYMAT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At2 =
+        (dptr_u + bssn::VAR::U_SYMAT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At3 =
+        (dptr_u + bssn::VAR::U_SYMAT3 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At4 =
+        (dptr_u + bssn::VAR::U_SYMAT4 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At5 =
+        (dptr_u + bssn::VAR::U_SYMAT5 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt0 =
+        (dptr_u + bssn::VAR::U_GT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt1 =
+        (dptr_u + bssn::VAR::U_GT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt2 =
+        (dptr_u + bssn::VAR::U_GT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B0 =
+        (dptr_u + bssn::VAR::U_B0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B1 =
+        (dptr_u + bssn::VAR::U_B1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B2 =
+        (dptr_u + bssn::VAR::U_B2 * sz_per_dof + offset);
+
+    const DEVICE_INT i      = GPUDevice::thread_id_x() + pw;
+    const DEVICE_INT j      = GPUDevice::thread_id_y() + pw;
+    const DEVICE_INT k      = GPUDevice::thread_id_z() + pw;
+    const int gidx          = (k * nx + j) * nx + i;
+    const DEVICE_INT pp     = gidx;
+
+    const DEVICE_REAL hx = blk->m_dx[0];
+    const DEVICE_REAL x  = blk->m_ptMin[0] + i * hx;
+    const DEVICE_REAL y  = blk->m_ptMin[1] + j * blk->m_dx[1];
+    const DEVICE_REAL z  = blk->m_ptMin[2] + k * blk->m_dx[2];
+    const DEVICE_REAL RIT_ETA_OUTER   = 0.25;
+    const DEVICE_REAL RIT_ETA_CENTRAL = 2.0;
+    const DEVICE_REAL RIT_ETA_WIDTH   = 40.0;
+    const DEVICE_REAL r_coord         = sqrt(x * x + y * y + z * z);
+    const DEVICE_REAL w               = r_coord / RIT_ETA_WIDTH;
+    const DEVICE_REAL arg             = -w * w * w * w;
+    const DEVICE_REAL eta =
+        (RIT_ETA_CENTRAL - RIT_ETA_OUTER) * exp(arg) + RIT_ETA_OUTER;
+
+#include "../scripts/gauge6_point_db.cpp"
+}
+
+// Point-wise + KO dissipation in FP32 (item 6b).
+template <int pw, int nx, int pencil_sz>
+GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_pt_kof32(
+    DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    DEVICE_REAL ko_sigma) {
+    extern __shared__ DEVICE_REAL shared_mem[];
+    DEVICE_REAL* su = shared_mem;
+    // Du/DDu unused — kept as nullptr aliases so any leftover refs fail loudly
+    // at compile time rather than silently. gauge6_point.cpp does not use them.
+    (void)pencil_sz;
+
+    const DEVICE_UINT sz_per_dof             = szpdof_uz;
+    const DEVICE_UINT lambda[4]              = {1, 1, 1, 1};
+    const DEVICE_REAL lambda_f[2]            = {1.0, 0.0};
+    const DEVICE_INT Z_ID                    = GPUDevice::block_id_x();
+
+    BlockGPU3D c_blk                         = dptr_blk[Z_ID];
+    const BlockGPU3D* __restrict__ const blk = &c_blk;
+    // PT fused FD is interior-only; domain-boundary blocks need stock
+    // one-sided 644/KO stencils (see __blk1_deriv644_* bflag overrides).
+    if (blk->m_bflag != 0) return;
+
+    const DEVICE_UINT offset                 = blk->m_offset;
+    const DEVICE_UINT actual_nx              = blk->m_sz[0];
+    const DEVICE_UINT BLK_SZ                 = nx * nx * nx;
+    const int pencils                        = pencil_sz;
+    (void)actual_nx;
+    (void)BLK_SZ;
+    (void)pencils;
+
+    DEVICE_REAL* __restrict__ const a_rhs =
+        &dptr_Fu[bssn::VAR::U_ALPHA * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const chi_rhs =
+        &dptr_Fu[bssn::VAR::U_CHI * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs00 =
+        &dptr_Fu[bssn::VAR::U_SYMGT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs01 =
+        &dptr_Fu[bssn::VAR::U_SYMGT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs02 =
+        &dptr_Fu[bssn::VAR::U_SYMGT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs11 =
+        &dptr_Fu[bssn::VAR::U_SYMGT3 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs12 =
+        &dptr_Fu[bssn::VAR::U_SYMGT4 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs22 =
+        &dptr_Fu[bssn::VAR::U_SYMGT5 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs0 =
+        &dptr_Fu[bssn::VAR::U_BETA0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs1 =
+        &dptr_Fu[bssn::VAR::U_BETA1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs2 =
+        &dptr_Fu[bssn::VAR::U_BETA2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs00 =
+        &dptr_Fu[bssn::VAR::U_SYMAT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs01 =
+        &dptr_Fu[bssn::VAR::U_SYMAT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs02 =
+        &dptr_Fu[bssn::VAR::U_SYMAT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs11 =
+        &dptr_Fu[bssn::VAR::U_SYMAT3 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs12 =
+        &dptr_Fu[bssn::VAR::U_SYMAT4 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs22 =
+        &dptr_Fu[bssn::VAR::U_SYMAT5 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs0 =
+        &dptr_Fu[bssn::VAR::U_GT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs1 =
+        &dptr_Fu[bssn::VAR::U_GT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs2 =
+        &dptr_Fu[bssn::VAR::U_GT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs0 =
+        &dptr_Fu[bssn::VAR::U_B0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs1 =
+        &dptr_Fu[bssn::VAR::U_B1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs2 =
+        &dptr_Fu[bssn::VAR::U_B2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const K_rhs =
+        &dptr_Fu[bssn::VAR::U_K * sz_per_dof + offset];
+
+    const DEVICE_REAL* __restrict__ const alpha =
+        (dptr_u + bssn::VAR::U_ALPHA * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const chi =
+        (dptr_u + bssn::VAR::U_CHI * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const K =
+        (dptr_u + bssn::VAR::U_K * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt0 =
+        (dptr_u + bssn::VAR::U_SYMGT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt1 =
+        (dptr_u + bssn::VAR::U_SYMGT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt2 =
+        (dptr_u + bssn::VAR::U_SYMGT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt3 =
+        (dptr_u + bssn::VAR::U_SYMGT3 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt4 =
+        (dptr_u + bssn::VAR::U_SYMGT4 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt5 =
+        (dptr_u + bssn::VAR::U_SYMGT5 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta0 =
+        (dptr_u + bssn::VAR::U_BETA0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta1 =
+        (dptr_u + bssn::VAR::U_BETA1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta2 =
+        (dptr_u + bssn::VAR::U_BETA2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At0 =
+        (dptr_u + bssn::VAR::U_SYMAT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At1 =
+        (dptr_u + bssn::VAR::U_SYMAT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At2 =
+        (dptr_u + bssn::VAR::U_SYMAT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At3 =
+        (dptr_u + bssn::VAR::U_SYMAT3 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At4 =
+        (dptr_u + bssn::VAR::U_SYMAT4 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At5 =
+        (dptr_u + bssn::VAR::U_SYMAT5 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt0 =
+        (dptr_u + bssn::VAR::U_GT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt1 =
+        (dptr_u + bssn::VAR::U_GT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt2 =
+        (dptr_u + bssn::VAR::U_GT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B0 =
+        (dptr_u + bssn::VAR::U_B0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B1 =
+        (dptr_u + bssn::VAR::U_B1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B2 =
+        (dptr_u + bssn::VAR::U_B2 * sz_per_dof + offset);
+
+    const DEVICE_INT i  = GPUDevice::thread_id_x() + pw;
+    const DEVICE_INT j  = GPUDevice::thread_id_y() + pw;
+    const DEVICE_INT k  = GPUDevice::thread_id_z() + pw;
+    const int gidx      = (k * nx + j) * nx + i;
+    const DEVICE_INT pp = gidx;
+
+    const DEVICE_REAL hx = blk->m_dx[0];
+    const DEVICE_REAL x  = blk->m_ptMin[0] + i * hx;
+    const DEVICE_REAL y  = blk->m_ptMin[1] + j * blk->m_dx[1];
+    const DEVICE_REAL z  = blk->m_ptMin[2] + k * blk->m_dx[2];
+    const DEVICE_REAL RIT_ETA_OUTER   = 0.25;
+    const DEVICE_REAL RIT_ETA_CENTRAL = 2.0;
+    const DEVICE_REAL RIT_ETA_WIDTH   = 40.0;
+    const DEVICE_REAL r_coord         = sqrt(x * x + y * y + z * z);
+    const DEVICE_REAL w               = r_coord / RIT_ETA_WIDTH;
+    const DEVICE_REAL arg             = -w * w * w * w;
+    const DEVICE_REAL eta =
+        (RIT_ETA_CENTRAL - RIT_ETA_OUTER) * exp(arg) + RIT_ETA_OUTER;
+
+#define PT_FUSED_X3 device::__pt_fused_x3_kof32
+#define PT_FUSED_Y3 device::__pt_fused_y3_kof32
+#define PT_FUSED_Z3 device::__pt_fused_z3_kof32
+#include "../scripts/gauge6_point.cpp"
+#undef PT_FUSED_X3
+#undef PT_FUSED_Y3
+#undef PT_FUSED_Z3
+}
+
+// ---- FP32 Du/DDu shared scratch (FP64 state + algebra regs) ----
+// Note: short evolve shows C_HAM L2 growth vs FP64 — keep behind DENDRO_RHS_F32.
+template <int pw, int nx, int pencil_sz>
+GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_f32(
+    DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    DEVICE_REAL ko_sigma) {
+    // Same extern __shared__ type as other kernels in this TU (CUDA rule).
+    extern __shared__ DEVICE_REAL shared_mem[];
+    const int n3 = pencil_sz * pencil_sz * pencil_sz;
+    float* su  = reinterpret_cast<float*>(shared_mem);
+    float* Du  = su + n3;
+    float* DDu = Du + n3;
+
+    const DEVICE_UINT sz_per_dof             = szpdof_uz;
+    const DEVICE_UINT lambda[4]              = {1, 1, 1, 1};
+    const DEVICE_REAL lambda_f[2]            = {1.0, 0.0};
+    const DEVICE_INT Z_ID                    = GPUDevice::block_id_x();
+
+    BlockGPU3D c_blk                         = dptr_blk[Z_ID];
+    const BlockGPU3D* __restrict__ const blk = &c_blk;
+    if (blk->m_bflag != 0) return;  // interior FP32 stencils only
+
+    const DEVICE_UINT offset                 = blk->m_offset;
+    const int pencils                        = pencil_sz;
+
+    DEVICE_REAL* __restrict__ const a_rhs =
+        &dptr_Fu[bssn::VAR::U_ALPHA * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const chi_rhs =
+        &dptr_Fu[bssn::VAR::U_CHI * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs00 =
+        &dptr_Fu[bssn::VAR::U_SYMGT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs01 =
+        &dptr_Fu[bssn::VAR::U_SYMGT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs02 =
+        &dptr_Fu[bssn::VAR::U_SYMGT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs11 =
+        &dptr_Fu[bssn::VAR::U_SYMGT3 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs12 =
+        &dptr_Fu[bssn::VAR::U_SYMGT4 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs22 =
+        &dptr_Fu[bssn::VAR::U_SYMGT5 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs0 =
+        &dptr_Fu[bssn::VAR::U_BETA0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs1 =
+        &dptr_Fu[bssn::VAR::U_BETA1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs2 =
+        &dptr_Fu[bssn::VAR::U_BETA2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs00 =
+        &dptr_Fu[bssn::VAR::U_SYMAT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs01 =
+        &dptr_Fu[bssn::VAR::U_SYMAT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs02 =
+        &dptr_Fu[bssn::VAR::U_SYMAT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs11 =
+        &dptr_Fu[bssn::VAR::U_SYMAT3 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs12 =
+        &dptr_Fu[bssn::VAR::U_SYMAT4 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs22 =
+        &dptr_Fu[bssn::VAR::U_SYMAT5 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs0 =
+        &dptr_Fu[bssn::VAR::U_GT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs1 =
+        &dptr_Fu[bssn::VAR::U_GT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs2 =
+        &dptr_Fu[bssn::VAR::U_GT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs0 =
+        &dptr_Fu[bssn::VAR::U_B0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs1 =
+        &dptr_Fu[bssn::VAR::U_B1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs2 =
+        &dptr_Fu[bssn::VAR::U_B2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const K_rhs =
+        &dptr_Fu[bssn::VAR::U_K * sz_per_dof + offset];
+
+    const DEVICE_REAL* __restrict__ const alpha =
+        (dptr_u + bssn::VAR::U_ALPHA * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const chi =
+        (dptr_u + bssn::VAR::U_CHI * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const K =
+        (dptr_u + bssn::VAR::U_K * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt0 =
+        (dptr_u + bssn::VAR::U_SYMGT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt1 =
+        (dptr_u + bssn::VAR::U_SYMGT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt2 =
+        (dptr_u + bssn::VAR::U_SYMGT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt3 =
+        (dptr_u + bssn::VAR::U_SYMGT3 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt4 =
+        (dptr_u + bssn::VAR::U_SYMGT4 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt5 =
+        (dptr_u + bssn::VAR::U_SYMGT5 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta0 =
+        (dptr_u + bssn::VAR::U_BETA0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta1 =
+        (dptr_u + bssn::VAR::U_BETA1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta2 =
+        (dptr_u + bssn::VAR::U_BETA2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At0 =
+        (dptr_u + bssn::VAR::U_SYMAT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At1 =
+        (dptr_u + bssn::VAR::U_SYMAT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At2 =
+        (dptr_u + bssn::VAR::U_SYMAT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At3 =
+        (dptr_u + bssn::VAR::U_SYMAT3 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At4 =
+        (dptr_u + bssn::VAR::U_SYMAT4 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At5 =
+        (dptr_u + bssn::VAR::U_SYMAT5 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt0 =
+        (dptr_u + bssn::VAR::U_GT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt1 =
+        (dptr_u + bssn::VAR::U_GT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt2 =
+        (dptr_u + bssn::VAR::U_GT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B0 =
+        (dptr_u + bssn::VAR::U_B0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B1 =
+        (dptr_u + bssn::VAR::U_B1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B2 =
+        (dptr_u + bssn::VAR::U_B2 * sz_per_dof + offset);
+
+    const DEVICE_INT i = GPUDevice::thread_id_x() + pw;
+    const DEVICE_INT j = GPUDevice::thread_id_y() + pw;
+    const DEVICE_INT k = GPUDevice::thread_id_z() + pw;
+    const int gidx = (k * nx + j) * nx + i;
+    const DEVICE_INT pp = gidx;
+
+    const DEVICE_REAL hx = blk->m_dx[0];
+    const DEVICE_REAL x = blk->m_ptMin[0] + i * hx;
+    const DEVICE_REAL y = blk->m_ptMin[1] + j * blk->m_dx[1];
+    const DEVICE_REAL z = blk->m_ptMin[2] + k * blk->m_dx[2];
+    const DEVICE_REAL RIT_ETA_OUTER = 0.25;
+    const DEVICE_REAL RIT_ETA_CENTRAL = 2.0;
+    const DEVICE_REAL RIT_ETA_WIDTH = 40.0;
+    const DEVICE_REAL r_coord = sqrt(x * x + y * y + z * z);
+    const DEVICE_REAL w = r_coord / RIT_ETA_WIDTH;
+    const DEVICE_REAL arg = -w * w * w * w;
+    const DEVICE_REAL eta =
+        (RIT_ETA_CENTRAL - RIT_ETA_OUTER) * exp(arg) + RIT_ETA_OUTER;
+#include "../scripts/gauge6_f32.cpp"
+}
+
+// Forward decl: defined with PT host launchers (hybrid face blocks).
+template <int pw, int nx, int pencil_sz>
+HOST_FUNC inline void bssnrhs3_stock_boundary(
+    DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
+    BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    DEVICE_REAL ko_sigma);
+
+template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
+HOST_FUNC void bssnrhs3_f32(DEVICE_REAL* const dptr_Fu,
+                            const DEVICE_REAL* const dptr_u, BlockGPU3D* dptr_blk,
+                            DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+                            DEVICE_REAL ko_sigma) {
+    dim3 gb = dim3(nblocks, 1, 1);
+    dim3 tb = dim3(7, 7, 7);
+    const int smem = 13 * 13 * 13 * 4 * 3;
+    cudaFuncSetAttribute(device::eval_rhs3_f32<pw, nx, pencil_sz>,
+                         cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+    // Measured: PreferShared 0.142s vs PreferL1 0.181s @2048×20.
+    // Override with DENDRO_F32_PREFER_L1=1.
+    if (std::getenv("DENDRO_F32_PREFER_L1"))
+        cudaFuncSetCacheConfig(device::eval_rhs3_f32<pw, nx, pencil_sz>,
+                               cudaFuncCachePreferL1);
+    else
+        cudaFuncSetCacheConfig(device::eval_rhs3_f32<pw, nx, pencil_sz>,
+                               cudaFuncCachePreferShared);
+    eval_rhs3_f32<pw, nx, pencil_sz><<<gb, tb, smem>>>(
+        dptr_Fu, dptr_u, dptr_blk, nblocks, szpdof_uz, ko_sigma);
+    // Interior-only FP32 stencils: domain faces use stock one-sided FD.
+    bssnrhs3_stock_boundary<pw, nx, pencil_sz>(dptr_Fu, dptr_u, dptr_blk,
+                                               nblocks, szpdof_uz, ko_sigma);
+    cudaDeviceSynchronize();
+}
+
+
+// ---- FP32 Du/DDu shared scratch (FP64 state + algebra regs) ----
+// Centered float cast of (u-u_c) into su; expect better puncture accuracy than raw f32.
+template <int pw, int nx, int pencil_sz>
+GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_f32c(
+    DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    DEVICE_REAL ko_sigma) {
+    // Same extern __shared__ type as other kernels in this TU (CUDA rule).
+    extern __shared__ DEVICE_REAL shared_mem[];
+    const int n3 = pencil_sz * pencil_sz * pencil_sz;
+    float* su  = reinterpret_cast<float*>(shared_mem);
+    float* Du  = su + n3;
+    float* DDu = Du + n3;
+
+    const DEVICE_UINT sz_per_dof             = szpdof_uz;
+    const DEVICE_UINT lambda[4]              = {1, 1, 1, 1};
+    const DEVICE_REAL lambda_f[2]            = {1.0, 0.0};
+    const DEVICE_INT Z_ID                    = GPUDevice::block_id_x();
+
+    BlockGPU3D c_blk                         = dptr_blk[Z_ID];
+    const BlockGPU3D* __restrict__ const blk = &c_blk;
+    if (blk->m_bflag != 0) return;  // interior FP32 stencils only
+
+    const DEVICE_UINT offset                 = blk->m_offset;
+    const int pencils                        = pencil_sz;
+
+    DEVICE_REAL* __restrict__ const a_rhs =
+        &dptr_Fu[bssn::VAR::U_ALPHA * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const chi_rhs =
+        &dptr_Fu[bssn::VAR::U_CHI * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs00 =
+        &dptr_Fu[bssn::VAR::U_SYMGT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs01 =
+        &dptr_Fu[bssn::VAR::U_SYMGT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs02 =
+        &dptr_Fu[bssn::VAR::U_SYMGT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs11 =
+        &dptr_Fu[bssn::VAR::U_SYMGT3 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs12 =
+        &dptr_Fu[bssn::VAR::U_SYMGT4 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs22 =
+        &dptr_Fu[bssn::VAR::U_SYMGT5 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs0 =
+        &dptr_Fu[bssn::VAR::U_BETA0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs1 =
+        &dptr_Fu[bssn::VAR::U_BETA1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs2 =
+        &dptr_Fu[bssn::VAR::U_BETA2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs00 =
+        &dptr_Fu[bssn::VAR::U_SYMAT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs01 =
+        &dptr_Fu[bssn::VAR::U_SYMAT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs02 =
+        &dptr_Fu[bssn::VAR::U_SYMAT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs11 =
+        &dptr_Fu[bssn::VAR::U_SYMAT3 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs12 =
+        &dptr_Fu[bssn::VAR::U_SYMAT4 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs22 =
+        &dptr_Fu[bssn::VAR::U_SYMAT5 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs0 =
+        &dptr_Fu[bssn::VAR::U_GT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs1 =
+        &dptr_Fu[bssn::VAR::U_GT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs2 =
+        &dptr_Fu[bssn::VAR::U_GT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs0 =
+        &dptr_Fu[bssn::VAR::U_B0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs1 =
+        &dptr_Fu[bssn::VAR::U_B1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs2 =
+        &dptr_Fu[bssn::VAR::U_B2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const K_rhs =
+        &dptr_Fu[bssn::VAR::U_K * sz_per_dof + offset];
+
+    const DEVICE_REAL* __restrict__ const alpha =
+        (dptr_u + bssn::VAR::U_ALPHA * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const chi =
+        (dptr_u + bssn::VAR::U_CHI * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const K =
+        (dptr_u + bssn::VAR::U_K * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt0 =
+        (dptr_u + bssn::VAR::U_SYMGT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt1 =
+        (dptr_u + bssn::VAR::U_SYMGT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt2 =
+        (dptr_u + bssn::VAR::U_SYMGT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt3 =
+        (dptr_u + bssn::VAR::U_SYMGT3 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt4 =
+        (dptr_u + bssn::VAR::U_SYMGT4 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt5 =
+        (dptr_u + bssn::VAR::U_SYMGT5 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta0 =
+        (dptr_u + bssn::VAR::U_BETA0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta1 =
+        (dptr_u + bssn::VAR::U_BETA1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta2 =
+        (dptr_u + bssn::VAR::U_BETA2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At0 =
+        (dptr_u + bssn::VAR::U_SYMAT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At1 =
+        (dptr_u + bssn::VAR::U_SYMAT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At2 =
+        (dptr_u + bssn::VAR::U_SYMAT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At3 =
+        (dptr_u + bssn::VAR::U_SYMAT3 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At4 =
+        (dptr_u + bssn::VAR::U_SYMAT4 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At5 =
+        (dptr_u + bssn::VAR::U_SYMAT5 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt0 =
+        (dptr_u + bssn::VAR::U_GT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt1 =
+        (dptr_u + bssn::VAR::U_GT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt2 =
+        (dptr_u + bssn::VAR::U_GT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B0 =
+        (dptr_u + bssn::VAR::U_B0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B1 =
+        (dptr_u + bssn::VAR::U_B1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B2 =
+        (dptr_u + bssn::VAR::U_B2 * sz_per_dof + offset);
+
+    const DEVICE_INT i = GPUDevice::thread_id_x() + pw;
+    const DEVICE_INT j = GPUDevice::thread_id_y() + pw;
+    const DEVICE_INT k = GPUDevice::thread_id_z() + pw;
+    const int gidx = (k * nx + j) * nx + i;
+    const DEVICE_INT pp = gidx;
+
+    const DEVICE_REAL hx = blk->m_dx[0];
+    const DEVICE_REAL x = blk->m_ptMin[0] + i * hx;
+    const DEVICE_REAL y = blk->m_ptMin[1] + j * blk->m_dx[1];
+    const DEVICE_REAL z = blk->m_ptMin[2] + k * blk->m_dx[2];
+    const DEVICE_REAL RIT_ETA_OUTER = 0.25;
+    const DEVICE_REAL RIT_ETA_CENTRAL = 2.0;
+    const DEVICE_REAL RIT_ETA_WIDTH = 40.0;
+    const DEVICE_REAL r_coord = sqrt(x * x + y * y + z * z);
+    const DEVICE_REAL w = r_coord / RIT_ETA_WIDTH;
+    const DEVICE_REAL arg = -w * w * w * w;
+    const DEVICE_REAL eta =
+        (RIT_ETA_CENTRAL - RIT_ETA_OUTER) * exp(arg) + RIT_ETA_OUTER;
+#include "../scripts/gauge6_f32c.cpp"
+}
+
+template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
+HOST_FUNC void bssnrhs3_f32c(DEVICE_REAL* const dptr_Fu,
+                            const DEVICE_REAL* const dptr_u, BlockGPU3D* dptr_blk,
+                            DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+                            DEVICE_REAL ko_sigma) {
+    dim3 gb = dim3(nblocks, 1, 1);
+    dim3 tb = dim3(7, 7, 7);
+    const int smem = 13 * 13 * 13 * 4 * 3;
+    cudaFuncSetAttribute(device::eval_rhs3_f32c<pw, nx, pencil_sz>,
+                         cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+    // Measured: PreferShared 0.142s vs PreferL1 0.181s @2048×20.
+    // Override with DENDRO_F32_PREFER_L1=1.
+    if (std::getenv("DENDRO_F32_PREFER_L1"))
+        cudaFuncSetCacheConfig(device::eval_rhs3_f32c<pw, nx, pencil_sz>,
+                               cudaFuncCachePreferL1);
+    else
+        cudaFuncSetCacheConfig(device::eval_rhs3_f32c<pw, nx, pencil_sz>,
+                               cudaFuncCachePreferShared);
+    eval_rhs3_f32c<pw, nx, pencil_sz><<<gb, tb, smem>>>(
+        dptr_Fu, dptr_u, dptr_blk, nblocks, szpdof_uz, ko_sigma);
+    bssnrhs3_stock_boundary<pw, nx, pencil_sz>(dptr_Fu, dptr_u, dptr_blk,
+                                               nblocks, szpdof_uz, ko_sigma);
+    cudaDeviceSynchronize();
+}
+
+
+// ---- Hybrid: float su + FP64 Du/DDu ----
+template <int pw, int nx, int pencil_sz>
+GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_f2d(
+    DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    DEVICE_REAL ko_sigma) {
+    extern __shared__ DEVICE_REAL shared_mem[];
+    const int n3 = pencil_sz * pencil_sz * pencil_sz;
+    // layout: float su[n3] | pad to 8B | double Du[n3] | double DDu[n3]
+    float* su = reinterpret_cast<float*>(shared_mem);
+    const int su_bytes = (n3 * (int)sizeof(float) + 7) & ~7;
+    DEVICE_REAL* Du = reinterpret_cast<DEVICE_REAL*>(
+        reinterpret_cast<char*>(shared_mem) + su_bytes);
+    DEVICE_REAL* DDu = Du + n3;
+
+    const DEVICE_UINT sz_per_dof = szpdof_uz;
+    const DEVICE_UINT lambda[4] = {1, 1, 1, 1};
+    const DEVICE_REAL lambda_f[2] = {1.0, 0.0};
+    const DEVICE_INT Z_ID = GPUDevice::block_id_x();
+    BlockGPU3D c_blk = dptr_blk[Z_ID];
+    const BlockGPU3D* __restrict__ const blk = &c_blk;
+    const DEVICE_UINT offset = blk->m_offset;
+    const int pencils = pencil_sz;
+
+    DEVICE_REAL* __restrict__ const a_rhs = &dptr_Fu[bssn::VAR::U_ALPHA * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const chi_rhs = &dptr_Fu[bssn::VAR::U_CHI * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs00 = &dptr_Fu[bssn::VAR::U_SYMGT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs01 = &dptr_Fu[bssn::VAR::U_SYMGT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs02 = &dptr_Fu[bssn::VAR::U_SYMGT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs11 = &dptr_Fu[bssn::VAR::U_SYMGT3 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs12 = &dptr_Fu[bssn::VAR::U_SYMGT4 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs22 = &dptr_Fu[bssn::VAR::U_SYMGT5 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs0 = &dptr_Fu[bssn::VAR::U_BETA0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs1 = &dptr_Fu[bssn::VAR::U_BETA1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs2 = &dptr_Fu[bssn::VAR::U_BETA2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs00 = &dptr_Fu[bssn::VAR::U_SYMAT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs01 = &dptr_Fu[bssn::VAR::U_SYMAT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs02 = &dptr_Fu[bssn::VAR::U_SYMAT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs11 = &dptr_Fu[bssn::VAR::U_SYMAT3 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs12 = &dptr_Fu[bssn::VAR::U_SYMAT4 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs22 = &dptr_Fu[bssn::VAR::U_SYMAT5 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs0 = &dptr_Fu[bssn::VAR::U_GT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs1 = &dptr_Fu[bssn::VAR::U_GT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs2 = &dptr_Fu[bssn::VAR::U_GT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs0 = &dptr_Fu[bssn::VAR::U_B0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs1 = &dptr_Fu[bssn::VAR::U_B1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs2 = &dptr_Fu[bssn::VAR::U_B2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const K_rhs = &dptr_Fu[bssn::VAR::U_K * sz_per_dof + offset];
+
+    const DEVICE_REAL* __restrict__ const alpha = (dptr_u + bssn::VAR::U_ALPHA * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const chi = (dptr_u + bssn::VAR::U_CHI * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const K = (dptr_u + bssn::VAR::U_K * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt0 = (dptr_u + bssn::VAR::U_SYMGT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt1 = (dptr_u + bssn::VAR::U_SYMGT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt2 = (dptr_u + bssn::VAR::U_SYMGT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt3 = (dptr_u + bssn::VAR::U_SYMGT3 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt4 = (dptr_u + bssn::VAR::U_SYMGT4 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt5 = (dptr_u + bssn::VAR::U_SYMGT5 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta0 = (dptr_u + bssn::VAR::U_BETA0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta1 = (dptr_u + bssn::VAR::U_BETA1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta2 = (dptr_u + bssn::VAR::U_BETA2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At0 = (dptr_u + bssn::VAR::U_SYMAT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At1 = (dptr_u + bssn::VAR::U_SYMAT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At2 = (dptr_u + bssn::VAR::U_SYMAT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At3 = (dptr_u + bssn::VAR::U_SYMAT3 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At4 = (dptr_u + bssn::VAR::U_SYMAT4 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At5 = (dptr_u + bssn::VAR::U_SYMAT5 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt0 = (dptr_u + bssn::VAR::U_GT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt1 = (dptr_u + bssn::VAR::U_GT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt2 = (dptr_u + bssn::VAR::U_GT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B0 = (dptr_u + bssn::VAR::U_B0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B1 = (dptr_u + bssn::VAR::U_B1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B2 = (dptr_u + bssn::VAR::U_B2 * sz_per_dof + offset);
+
+    const DEVICE_INT i = GPUDevice::thread_id_x() + pw;
+    const DEVICE_INT j = GPUDevice::thread_id_y() + pw;
+    const DEVICE_INT k = GPUDevice::thread_id_z() + pw;
+    const int gidx = (k * nx + j) * nx + i;
+    const DEVICE_INT pp = gidx;
+    const DEVICE_REAL hx = blk->m_dx[0];
+    const DEVICE_REAL x = blk->m_ptMin[0] + i * hx;
+    const DEVICE_REAL y = blk->m_ptMin[1] + j * blk->m_dx[1];
+    const DEVICE_REAL z = blk->m_ptMin[2] + k * blk->m_dx[2];
+    const DEVICE_REAL RIT_ETA_OUTER = 0.25;
+    const DEVICE_REAL RIT_ETA_CENTRAL = 2.0;
+    const DEVICE_REAL RIT_ETA_WIDTH = 40.0;
+    const DEVICE_REAL r_coord = sqrt(x * x + y * y + z * z);
+    const DEVICE_REAL w = r_coord / RIT_ETA_WIDTH;
+    const DEVICE_REAL arg = -w * w * w * w;
+    const DEVICE_REAL eta = (RIT_ETA_CENTRAL - RIT_ETA_OUTER) * exp(arg) + RIT_ETA_OUTER;
+#include "../scripts/gauge6_f2d.cpp"
+}
+
+template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
+HOST_FUNC void bssnrhs3_f2d(DEVICE_REAL* const dptr_Fu,
+                            const DEVICE_REAL* const dptr_u, BlockGPU3D* dptr_blk,
+                            DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+                            DEVICE_REAL ko_sigma) {
+    dim3 gb = dim3(nblocks, 1, 1);
+    dim3 tb = dim3(7, 7, 7);
+    const int n3 = 13 * 13 * 13;
+    const int su_bytes = (n3 * (int)sizeof(float) + 7) & ~7;
+    const int smem = su_bytes + 2 * n3 * (int)sizeof(DEVICE_REAL);
+    cudaFuncSetAttribute(device::eval_rhs3_f2d<pw, nx, pencil_sz>,
+                         cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+    cudaFuncSetCacheConfig(device::eval_rhs3_f2d<pw, nx, pencil_sz>,
+                           cudaFuncCachePreferShared);
+    eval_rhs3_f2d<pw, nx, pencil_sz><<<gb, tb, smem>>>(
+        dptr_Fu, dptr_u, dptr_blk, nblocks, szpdof_uz, ko_sigma);
+    cudaDeviceSynchronize();
+}
+
+// ---- Interior-workspace 2-kernel path (7^3 grads / block) ----
+// Optional: requires gauge6_derivs_ws.cpp + gauge6_algebra_ws.cpp (not in
+// the GB200 transfer tarball; A100 already showed WS slower than PT).
+#if __has_include("../scripts/gauge6_derivs_ws.cpp") && \
+    __has_include("../scripts/gauge6_algebra_ws.cpp")
+#define DENDRO_HAS_WS_KERNELS 1
+template <int pw, int nx, int pencil_sz>
+GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_derivs_ws(
+    const DEVICE_REAL* const dptr_u, const BlockGPU3D* dptr_blk,
+    DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz, DEVICE_REAL* grad_ws) {
+    extern __shared__ DEVICE_REAL shared_mem[];
+    DEVICE_REAL* su  = shared_mem;
+    DEVICE_REAL* Du  = shared_mem + pencil_sz * pencil_sz * pencil_sz;
+    DEVICE_REAL* DDu = shared_mem + 2 * pencil_sz * pencil_sz * pencil_sz;
+
+    constexpr int INTERIOR = 7 * 7 * 7;
+    const DEVICE_UINT nblocks_ws = nblocks;
+    const DEVICE_INT Z_ID = GPUDevice::block_id_x();
+    BlockGPU3D c_blk = dptr_blk[Z_ID];
+    const BlockGPU3D* __restrict__ const blk = &c_blk;
+    const DEVICE_UINT offset = blk->m_offset;
+    const DEVICE_UINT sz_per_dof = szpdof_uz;
+    const int pencils = pencil_sz;
+
+    const DEVICE_REAL* __restrict__ const alpha =
+        (dptr_u + bssn::VAR::U_ALPHA * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const chi =
+        (dptr_u + bssn::VAR::U_CHI * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const K =
+        (dptr_u + bssn::VAR::U_K * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt0 =
+        (dptr_u + bssn::VAR::U_SYMGT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt1 =
+        (dptr_u + bssn::VAR::U_SYMGT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt2 =
+        (dptr_u + bssn::VAR::U_SYMGT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt3 =
+        (dptr_u + bssn::VAR::U_SYMGT3 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt4 =
+        (dptr_u + bssn::VAR::U_SYMGT4 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt5 =
+        (dptr_u + bssn::VAR::U_SYMGT5 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta0 =
+        (dptr_u + bssn::VAR::U_BETA0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta1 =
+        (dptr_u + bssn::VAR::U_BETA1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta2 =
+        (dptr_u + bssn::VAR::U_BETA2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At0 =
+        (dptr_u + bssn::VAR::U_SYMAT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At1 =
+        (dptr_u + bssn::VAR::U_SYMAT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At2 =
+        (dptr_u + bssn::VAR::U_SYMAT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At3 =
+        (dptr_u + bssn::VAR::U_SYMAT3 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At4 =
+        (dptr_u + bssn::VAR::U_SYMAT4 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At5 =
+        (dptr_u + bssn::VAR::U_SYMAT5 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt0 =
+        (dptr_u + bssn::VAR::U_GT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt1 =
+        (dptr_u + bssn::VAR::U_GT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt2 =
+        (dptr_u + bssn::VAR::U_GT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B0 =
+        (dptr_u + bssn::VAR::U_B0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B1 =
+        (dptr_u + bssn::VAR::U_B1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B2 =
+        (dptr_u + bssn::VAR::U_B2 * sz_per_dof + offset);
+
+    const DEVICE_INT i = GPUDevice::thread_id_x() + pw;
+    const DEVICE_INT j = GPUDevice::thread_id_y() + pw;
+    const DEVICE_INT k = GPUDevice::thread_id_z() + pw;
+    const int gidx = (k * nx + j) * nx + i;
+    const int tid = GPUDevice::thread_id_x() +
+                    7 * (GPUDevice::thread_id_y() + 7 * GPUDevice::thread_id_z());
+#include "../scripts/gauge6_derivs_ws.cpp"
+}
+
+template <int pw, int nx, int pencil_sz>
+GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_algebra_ws(
+    DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    DEVICE_REAL ko_sigma, const DEVICE_REAL* grad_ws) {
+    constexpr int INTERIOR = 7 * 7 * 7;
+    const DEVICE_UINT nblocks_ws = nblocks;
+    const DEVICE_UINT lambda[4] = {1, 1, 1, 1};
+    const DEVICE_REAL lambda_f[2] = {1.0, 0.0};
+    const DEVICE_INT Z_ID = GPUDevice::block_id_x();
+    BlockGPU3D c_blk = dptr_blk[Z_ID];
+    const BlockGPU3D* __restrict__ const blk = &c_blk;
+    const DEVICE_UINT offset = blk->m_offset;
+    const DEVICE_UINT sz_per_dof = szpdof_uz;
+
+    DEVICE_REAL* __restrict__ const a_rhs =
+        &dptr_Fu[bssn::VAR::U_ALPHA * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const chi_rhs =
+        &dptr_Fu[bssn::VAR::U_CHI * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs00 =
+        &dptr_Fu[bssn::VAR::U_SYMGT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs01 =
+        &dptr_Fu[bssn::VAR::U_SYMGT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs02 =
+        &dptr_Fu[bssn::VAR::U_SYMGT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs11 =
+        &dptr_Fu[bssn::VAR::U_SYMGT3 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs12 =
+        &dptr_Fu[bssn::VAR::U_SYMGT4 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const gt_rhs22 =
+        &dptr_Fu[bssn::VAR::U_SYMGT5 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs0 =
+        &dptr_Fu[bssn::VAR::U_BETA0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs1 =
+        &dptr_Fu[bssn::VAR::U_BETA1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const b_rhs2 =
+        &dptr_Fu[bssn::VAR::U_BETA2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs00 =
+        &dptr_Fu[bssn::VAR::U_SYMAT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs01 =
+        &dptr_Fu[bssn::VAR::U_SYMAT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs02 =
+        &dptr_Fu[bssn::VAR::U_SYMAT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs11 =
+        &dptr_Fu[bssn::VAR::U_SYMAT3 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs12 =
+        &dptr_Fu[bssn::VAR::U_SYMAT4 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const At_rhs22 =
+        &dptr_Fu[bssn::VAR::U_SYMAT5 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs0 =
+        &dptr_Fu[bssn::VAR::U_GT0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs1 =
+        &dptr_Fu[bssn::VAR::U_GT1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const Gt_rhs2 =
+        &dptr_Fu[bssn::VAR::U_GT2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs0 =
+        &dptr_Fu[bssn::VAR::U_B0 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs1 =
+        &dptr_Fu[bssn::VAR::U_B1 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const B_rhs2 =
+        &dptr_Fu[bssn::VAR::U_B2 * sz_per_dof + offset];
+    DEVICE_REAL* __restrict__ const K_rhs =
+        &dptr_Fu[bssn::VAR::U_K * sz_per_dof + offset];
+
+    const DEVICE_REAL* __restrict__ const alpha =
+        (dptr_u + bssn::VAR::U_ALPHA * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const chi =
+        (dptr_u + bssn::VAR::U_CHI * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const K =
+        (dptr_u + bssn::VAR::U_K * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt0 =
+        (dptr_u + bssn::VAR::U_SYMGT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt1 =
+        (dptr_u + bssn::VAR::U_SYMGT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt2 =
+        (dptr_u + bssn::VAR::U_SYMGT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt3 =
+        (dptr_u + bssn::VAR::U_SYMGT3 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt4 =
+        (dptr_u + bssn::VAR::U_SYMGT4 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const gt5 =
+        (dptr_u + bssn::VAR::U_SYMGT5 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta0 =
+        (dptr_u + bssn::VAR::U_BETA0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta1 =
+        (dptr_u + bssn::VAR::U_BETA1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const beta2 =
+        (dptr_u + bssn::VAR::U_BETA2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At0 =
+        (dptr_u + bssn::VAR::U_SYMAT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At1 =
+        (dptr_u + bssn::VAR::U_SYMAT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At2 =
+        (dptr_u + bssn::VAR::U_SYMAT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At3 =
+        (dptr_u + bssn::VAR::U_SYMAT3 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At4 =
+        (dptr_u + bssn::VAR::U_SYMAT4 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const At5 =
+        (dptr_u + bssn::VAR::U_SYMAT5 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt0 =
+        (dptr_u + bssn::VAR::U_GT0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt1 =
+        (dptr_u + bssn::VAR::U_GT1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const Gt2 =
+        (dptr_u + bssn::VAR::U_GT2 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B0 =
+        (dptr_u + bssn::VAR::U_B0 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B1 =
+        (dptr_u + bssn::VAR::U_B1 * sz_per_dof + offset);
+    const DEVICE_REAL* __restrict__ const B2 =
+        (dptr_u + bssn::VAR::U_B2 * sz_per_dof + offset);
+
+    const DEVICE_INT i = GPUDevice::thread_id_x() + pw;
+    const DEVICE_INT j = GPUDevice::thread_id_y() + pw;
+    const DEVICE_INT k = GPUDevice::thread_id_z() + pw;
+    const int gidx = (k * nx + j) * nx + i;
+    const DEVICE_INT pp = gidx;
+    const int tid = GPUDevice::thread_id_x() +
+                    7 * (GPUDevice::thread_id_y() + 7 * GPUDevice::thread_id_z());
+
+    const DEVICE_REAL hx = blk->m_dx[0];
+    const DEVICE_REAL x = blk->m_ptMin[0] + i * hx;
+    const DEVICE_REAL y = blk->m_ptMin[1] + j * blk->m_dx[1];
+    const DEVICE_REAL z = blk->m_ptMin[2] + k * blk->m_dx[2];
+    const DEVICE_REAL RIT_ETA_OUTER = 0.25;
+    const DEVICE_REAL RIT_ETA_CENTRAL = 2.0;
+    const DEVICE_REAL RIT_ETA_WIDTH = 40.0;
+    const DEVICE_REAL r_coord = sqrt(x * x + y * y + z * z);
+    const DEVICE_REAL w = r_coord / RIT_ETA_WIDTH;
+    const DEVICE_REAL arg = -w * w * w * w;
+    const DEVICE_REAL eta =
+        (RIT_ETA_CENTRAL - RIT_ETA_OUTER) * exp(arg) + RIT_ETA_OUTER;
+#include "../scripts/gauge6_algebra_ws.cpp"
+}
+
+template <int pw, int pencil_sz, int nx>
+HOST_FUNC void bssnrhs3_ws(DEVICE_REAL* const dptr_Fu,
+                           const DEVICE_REAL* const dptr_u, BlockGPU3D* dptr_blk,
+                           DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+                           DEVICE_REAL ko_sigma, DEVICE_REAL* grad_ws) {
+    dim3 gb = dim3(nblocks, 1, 1);
+    dim3 tb = dim3(7, 7, 7);
+    const int smem = 13 * 13 * 13 * 8 * 3;
+    cudaFuncSetAttribute(device::eval_rhs3_derivs_ws<pw, nx, pencil_sz>,
+                         cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+    cudaFuncSetCacheConfig(device::eval_rhs3_derivs_ws<pw, nx, pencil_sz>,
+                           cudaFuncCachePreferShared);
+    cudaFuncSetCacheConfig(device::eval_rhs3_algebra_ws<pw, nx, pencil_sz>,
+                           cudaFuncCachePreferL1);
+    eval_rhs3_derivs_ws<pw, nx, pencil_sz><<<gb, tb, smem>>>(
+        dptr_u, dptr_blk, nblocks, szpdof_uz, grad_ws);
+    eval_rhs3_algebra_ws<pw, nx, pencil_sz><<<gb, tb>>>(
+        dptr_Fu, dptr_u, dptr_blk, nblocks, szpdof_uz, ko_sigma, grad_ws);
+    cudaDeviceSynchronize();
+}
+#else
+#define DENDRO_HAS_WS_KERNELS 0
+#endif  // DENDRO_HAS_WS_KERNELS (optional generated WS scripts)
+
 template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
 HOST_FUNC void bssnrhs3(DEVICE_REAL* const dptr_Fu,
                         const DEVICE_REAL* const dptr_u, BlockGPU3D* dptr_blk,
@@ -2048,12 +3684,234 @@ HOST_FUNC void bssnrhs3(DEVICE_REAL* const dptr_Fu,
     dim3 gb = dim3(nblocks, 1, 1);
     dim3 tb = dim3(7, 7, 7);
 
+    cudaFuncSetCacheConfig(device::eval_rhs3<pw, nx, pencil_sz>,
+                           cudaFuncCachePreferShared);
     eval_rhs3<pw, nx, pencil_sz><<<gb, tb, 13 * 13 * 13 * 8 * 3>>>(
         dptr_Fu, dptr_u, dptr_blk, nblocks, szpdof_uz, ko_sigma);
     cudaDeviceSynchronize();
 
     return;
 }
+
+// Device compact launcher (kernel lives in compact_bdy.cu — one TU).
+HOST_FUNC void launch_compact_bdy_blocks(const BlockGPU3D* in, BlockGPU3D* out,
+                                         DEVICE_UINT* count, DEVICE_UINT n);
+
+// Hybrid: PT (or async/db) for interior blocks; stock eval_rhs3 for
+// domain-boundary blocks that need one-sided FD (bflag!=0).
+// Tier 2.3: DENDRO_COMPACT_BDY=1 → device-side compact (no host D2H).
+template <int pw, int nx, int pencil_sz>
+HOST_FUNC inline void bssnrhs3_stock_boundary(
+    DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
+    BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    DEVICE_REAL ko_sigma) {
+    dim3 tb = dim3(7, 7, 7);
+    const int smem = 13 * 13 * 13 * 8 * 3;
+    const char* compact_env = std::getenv("DENDRO_COMPACT_BDY");
+    const bool compact =
+        compact_env && (compact_env[0] == '1') && compact_env[1] == '\0';
+
+    BlockGPU3D* launch_blk = dptr_blk;
+    DEVICE_UINT launch_n   = nblocks;
+    static thread_local BlockGPU3D* d_bdy       = nullptr;
+    static thread_local DEVICE_UINT* d_count    = nullptr;
+    static thread_local DEVICE_UINT d_bdy_cap   = 0;
+    static thread_local DEVICE_UINT cached_n    = 0;
+    static thread_local DEVICE_UINT cached_nbdy = 0;
+    static thread_local const BlockGPU3D* cached_src = nullptr;
+
+    if (compact && nblocks > 0) {
+        if (cached_src != dptr_blk || cached_n != nblocks) {
+            if (nblocks > d_bdy_cap) {
+                if (d_bdy) cudaFree(d_bdy);
+                cudaMalloc(reinterpret_cast<void**>(&d_bdy),
+                           nblocks * sizeof(BlockGPU3D));
+                d_bdy_cap = nblocks;
+            }
+            if (!d_count) {
+                cudaMalloc(reinterpret_cast<void**>(&d_count),
+                           sizeof(DEVICE_UINT));
+            }
+            cudaMemset(d_count, 0, sizeof(DEVICE_UINT));
+            launch_compact_bdy_blocks(dptr_blk, d_bdy, d_count, nblocks);
+            cudaMemcpy(&cached_nbdy, d_count, sizeof(DEVICE_UINT),
+                       cudaMemcpyDeviceToHost);
+            cached_src = dptr_blk;
+            cached_n   = nblocks;
+            static thread_local bool logged = false;
+            if (!logged) {
+                printf("[COMPACT_BDY] device nblocks=%u nboundary=%u (%.1f%%)\n",
+                       nblocks, cached_nbdy,
+                       nblocks ? 100.0 * cached_nbdy / nblocks : 0.0);
+                logged = true;
+            }
+        }
+        if (cached_nbdy == 0) return;
+        launch_blk = d_bdy;
+        launch_n   = cached_nbdy;
+    }
+
+    dim3 gb = dim3(launch_n, 1, 1);
+    if (compact) {
+        cudaFuncSetAttribute(device::eval_rhs3<pw, nx, pencil_sz, 0>,
+                             cudaFuncAttributeMaxDynamicSharedMemorySize,
+                             smem);
+        cudaFuncSetCacheConfig(device::eval_rhs3<pw, nx, pencil_sz, 0>,
+                               cudaFuncCachePreferShared);
+        eval_rhs3<pw, nx, pencil_sz, 0><<<gb, tb, smem>>>(
+            dptr_Fu, dptr_u, launch_blk, launch_n, szpdof_uz, ko_sigma);
+    } else {
+        cudaFuncSetAttribute(device::eval_rhs3<pw, nx, pencil_sz, 2>,
+                             cudaFuncAttributeMaxDynamicSharedMemorySize,
+                             smem);
+        cudaFuncSetCacheConfig(device::eval_rhs3<pw, nx, pencil_sz, 2>,
+                               cudaFuncCachePreferShared);
+        eval_rhs3<pw, nx, pencil_sz, 2><<<gb, tb, smem>>>(
+            dptr_Fu, dptr_u, dptr_blk, nblocks, szpdof_uz, ko_sigma);
+    }
+}
+
+// Point-wise fused derivs (items 1–2): su only, no Du/DDu block passes.
+template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
+HOST_FUNC void bssnrhs3_pt(DEVICE_REAL* const dptr_Fu,
+                           const DEVICE_REAL* const dptr_u,
+                           BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
+                           DEVICE_UINT szpdof_uz, DEVICE_REAL ko_sigma) {
+    dim3 gb = dim3(nblocks, 1, 1);
+    dim3 tb = dim3(7, 7, 7);
+    const int smem = 13 * 13 * 13 * 8;  // su only
+    cudaFuncSetAttribute(device::eval_rhs3_pt<pw, nx, pencil_sz>,
+                         cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+    // With ~18KB smem, PreferL1 helps spill traffic; override with
+    // DENDRO_PT_PREFER_SHARED=1.
+    if (std::getenv("DENDRO_PT_PREFER_SHARED"))
+        cudaFuncSetCacheConfig(device::eval_rhs3_pt<pw, nx, pencil_sz>,
+                               cudaFuncCachePreferShared);
+    else
+        cudaFuncSetCacheConfig(device::eval_rhs3_pt<pw, nx, pencil_sz>,
+                               cudaFuncCachePreferL1);
+    eval_rhs3_pt<pw, nx, pencil_sz><<<gb, tb, smem>>>(
+        dptr_Fu, dptr_u, dptr_blk, nblocks, szpdof_uz, ko_sigma);
+    bssnrhs3_stock_boundary<pw, nx, pencil_sz>(dptr_Fu, dptr_u, dptr_blk,
+                                               nblocks, szpdof_uz, ko_sigma);
+    cudaDeviceSynchronize();
+}
+
+template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
+HOST_FUNC void bssnrhs3_pt_async(DEVICE_REAL* const dptr_Fu,
+                                 const DEVICE_REAL* const dptr_u,
+                                 BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
+                                 DEVICE_UINT szpdof_uz, DEVICE_REAL ko_sigma,
+                                 DEVICE_UINT K = 1, bool kshare = false) {
+    // grid.x = shared block list; grid.y = ensemble members (leading dim on
+    // unzipped vectors). K=1 preserves the prior single-member launch.
+    // kshare: one CTA/block loops K members (Tier 1.3 v2 geometry reuse).
+    if (K < 1) K = 1;
+    dim3 gb = kshare ? dim3(nblocks, 1, 1) : dim3(nblocks, K, 1);
+    dim3 tb = dim3(7, 7, 7);
+    const int smem = 13 * 13 * 13 * 8;
+    const DEVICE_UINT K_share = kshare ? K : 0;
+    cudaFuncSetAttribute(device::eval_rhs3_pt_async<pw, nx, pencil_sz>,
+                         cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+    cudaFuncSetCacheConfig(device::eval_rhs3_pt_async<pw, nx, pencil_sz>,
+                           cudaFuncCachePreferL1);
+    eval_rhs3_pt_async<pw, nx, pencil_sz><<<gb, tb, smem>>>(
+        dptr_Fu, dptr_u, dptr_blk, nblocks, szpdof_uz, ko_sigma, K_share);
+    for (DEVICE_UINT k = 0; k < K; ++k) {
+        const DEVICE_UINT stride = bssn::BSSN_NUM_VARS * szpdof_uz;
+        bssnrhs3_stock_boundary<pw, nx, pencil_sz>(
+            dptr_Fu + k * stride, dptr_u + k * stride, dptr_blk, nblocks,
+            szpdof_uz, ko_sigma);
+    }
+    cudaDeviceSynchronize();
+}
+
+// No-shared global stencil path (occupancy-focused).
+template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
+HOST_FUNC void bssnrhs3_pt_gmem(DEVICE_REAL* const dptr_Fu,
+                                const DEVICE_REAL* const dptr_u,
+                                BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
+                                DEVICE_UINT szpdof_uz, DEVICE_REAL ko_sigma) {
+    dim3 gb = dim3(nblocks, 1, 1);
+    dim3 tb = dim3(7, 7, 7);
+    cudaFuncSetCacheConfig(device::eval_rhs3_pt_gmem<pw, nx, pencil_sz>,
+                           cudaFuncCachePreferL1);
+    eval_rhs3_pt_gmem<pw, nx, pencil_sz><<<gb, tb>>>(
+        dptr_Fu, dptr_u, dptr_blk, nblocks, szpdof_uz, ko_sigma);
+    bssnrhs3_stock_boundary<pw, nx, pencil_sz>(dptr_Fu, dptr_u, dptr_blk,
+                                               nblocks, szpdof_uz, ko_sigma);
+    cudaDeviceSynchronize();
+}
+
+// PT fused + float shared tile only.
+// PreferShared: PreferL1 carves smem so small that even 9KB → 1 blk/SM on GB200.
+template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
+HOST_FUNC void bssnrhs3_pt_f32su(DEVICE_REAL* const dptr_Fu,
+                                 const DEVICE_REAL* const dptr_u,
+                                 BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
+                                 DEVICE_UINT szpdof_uz, DEVICE_REAL ko_sigma) {
+    dim3 gb = dim3(nblocks, 1, 1);
+    dim3 tb = dim3(7, 7, 7);
+    const int smem = 13 * 13 * 13 * 4;  // float su only
+    cudaFuncSetAttribute(device::eval_rhs3_pt_f32su<pw, nx, pencil_sz>,
+                         cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+    if (std::getenv("DENDRO_F32SU_PREFER_L1"))
+        cudaFuncSetCacheConfig(device::eval_rhs3_pt_f32su<pw, nx, pencil_sz>,
+                               cudaFuncCachePreferL1);
+    else
+        cudaFuncSetCacheConfig(device::eval_rhs3_pt_f32su<pw, nx, pencil_sz>,
+                               cudaFuncCachePreferShared);
+    eval_rhs3_pt_f32su<pw, nx, pencil_sz><<<gb, tb, smem>>>(
+        dptr_Fu, dptr_u, dptr_blk, nblocks, szpdof_uz, ko_sigma);
+    bssnrhs3_stock_boundary<pw, nx, pencil_sz>(dptr_Fu, dptr_u, dptr_blk,
+                                               nblocks, szpdof_uz, ko_sigma);
+    cudaDeviceSynchronize();
+}
+
+template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
+HOST_FUNC void bssnrhs3_pt_db(DEVICE_REAL* const dptr_Fu,
+                              const DEVICE_REAL* const dptr_u,
+                              BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
+                              DEVICE_UINT szpdof_uz, DEVICE_REAL ko_sigma) {
+    dim3 gb = dim3(nblocks, 1, 1);
+    dim3 tb = dim3(7, 7, 7);
+    // Two su tiles (su0/su1) for overlapped prefetch.
+    const int smem = 13 * 13 * 13 * 8 * 2;
+    cudaFuncSetAttribute(device::eval_rhs3_pt_db<pw, nx, pencil_sz>,
+                         cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+    // Default PreferL1 (~35KB 2×su); override with DENDRO_PT_PREFER_SHARED=1.
+    if (std::getenv("DENDRO_PT_PREFER_SHARED"))
+        cudaFuncSetCacheConfig(device::eval_rhs3_pt_db<pw, nx, pencil_sz>,
+                               cudaFuncCachePreferShared);
+    else
+        cudaFuncSetCacheConfig(device::eval_rhs3_pt_db<pw, nx, pencil_sz>,
+                               cudaFuncCachePreferL1);
+    eval_rhs3_pt_db<pw, nx, pencil_sz><<<gb, tb, smem>>>(
+        dptr_Fu, dptr_u, dptr_blk, nblocks, szpdof_uz, ko_sigma);
+    bssnrhs3_stock_boundary<pw, nx, pencil_sz>(dptr_Fu, dptr_u, dptr_blk,
+                                               nblocks, szpdof_uz, ko_sigma);
+    cudaDeviceSynchronize();
+}
+
+template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
+HOST_FUNC void bssnrhs3_pt_kof32(DEVICE_REAL* const dptr_Fu,
+                                 const DEVICE_REAL* const dptr_u,
+                                 BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
+                                 DEVICE_UINT szpdof_uz, DEVICE_REAL ko_sigma) {
+    dim3 gb = dim3(nblocks, 1, 1);
+    dim3 tb = dim3(7, 7, 7);
+    const int smem = 13 * 13 * 13 * 8;
+    cudaFuncSetAttribute(device::eval_rhs3_pt_kof32<pw, nx, pencil_sz>,
+                         cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+    cudaFuncSetCacheConfig(device::eval_rhs3_pt_kof32<pw, nx, pencil_sz>,
+                           cudaFuncCachePreferL1);
+    eval_rhs3_pt_kof32<pw, nx, pencil_sz><<<gb, tb, smem>>>(
+        dptr_Fu, dptr_u, dptr_blk, nblocks, szpdof_uz, ko_sigma);
+    bssnrhs3_stock_boundary<pw, nx, pencil_sz>(dptr_Fu, dptr_u, dptr_blk,
+                                               nblocks, szpdof_uz, ko_sigma);
+    cudaDeviceSynchronize();
+}
+
 
 template <int pw, int nx, int pencil_sz>
 GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs4(
