@@ -1,0 +1,22 @@
+[unzip-split] elements=1102 active=714 skipped0=388 hang=564 (79.0% of active) nh=150
+[unzip-split] elements=2209 active=1625 skipped0=584 hang=1573 (96.8% of active) nh=52
+[unzip-split] elements=2160 active=1569 skipped0=591 hang=1100 (70.1% of active) nh=469
+[unzip-split] elements=2259 active=1655 skipped0=604 hang=1637 (98.9% of active) nh=18
+[unzip-split] elements=2335 active=1692 skipped0=643 hang=1553 (91.8% of active) nh=139
+[unzip-split] elements=2284 active=1691 skipped0=593 hang=1577 (93.3% of active) nh=114
+[unzip-split] elements=2335 active=1692 skipped0=643 hang=1134 (67.0% of active) nh=558
+[unzip-split] elements=2284 active=1691 skipped0=593 hang=1548 (91.5% of active) nh=143
+[unzip-time] nh=110 0.250ms hang=1636 1.297ms (84% hang)
+[unzip-time] nh=143 0.219ms hang=1548 1.047ms (83% hang)
+[unzip-time] nh=110 0.215ms hang=1487 1.100ms (84% hang)
+[unzip-time] nh=111 0.279ms hang=1667 1.298ms (82% hang)
+[unzip-time] nh=143 0.183ms hang=1548 1.157ms (86% hang)
+[unzip-time] nh=110 0.192ms hang=1487 1.192ms (86% hang)
+[unzip-time] nh=110 0.224ms hang=1636 1.395ms (86% hang)
+[unzip-time] nh=111 0.283ms hang=1667 1.573ms (85% hang)
+[unzip-time] nh=143 0.175ms hang=1548 1.159ms (87% hang)
+[unzip-time] nh=110 0.167ms hang=1487 1.207ms (88% hang)
+[unzip-time] nh=110 0.216ms hang=1636 1.338ms (86% hang)
+[unzip-time] nh=111 0.313ms hang=1667 1.530ms (83% hang)
+ ETS time (max) : 2.1748
+TIER2_UNZIP_HANG_TIME_DONE

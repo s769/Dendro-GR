@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # When JOB becomes RUNNING, launch busy pipeline on that node.
 JOB="${1:-86880}"
-SCRIPT="${HOME}/Dendro-GR-notes/run_tier2_busy_c125.sh"
+SCRIPT="${HOME}/Dendro-GR-notes/run_keep_node_busy.sh"
 LOG="${HOME}/Dendro-GR-notes/tier0/watch_idev_${JOB}.log"
 echo "$(date -Is) watching ${JOB}" | tee -a "${LOG}"
 while true; do
@@ -10,9 +10,9 @@ while true; do
   n=$(echo "$st" | awk '{print $2}')
   echo "$(date -Is) state=${t:-NONE} node=${n:-}" | tee -a "${LOG}"
   if [[ "$t" == "RUNNING" && -n "$n" ]]; then
-    echo "$(date -Is) launching busy on ${n}" | tee -a "${LOG}"
+    echo "$(date -Is) launching keep_busy on ${n}" | tee -a "${LOG}"
     ssh -F /dev/null -o BatchMode=yes "$n" \
-      "nohup ${SCRIPT} >${HOME}/Dendro-GR-notes/tier0/busy_${n}.out 2>&1 & echo PID=\$!" \
+      "nohup ${SCRIPT} >${HOME}/Dendro-GR-notes/tier0/keep_${n}.out 2>&1 & echo PID=\$!" \
       | tee -a "${LOG}"
     exit 0
   fi

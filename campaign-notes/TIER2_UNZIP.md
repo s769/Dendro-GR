@@ -33,6 +33,17 @@ Zero-map skip removes ~27% of element CTAs (`skipped0≈600` of `~2260`), but th
 
 Real unzip cost is **hang prolong + scatter** on the hang-majority path, not empty CTAs or NH occupancy.
 
+### Hang vs nh kernel time (`DENDRO_UNZIP_TIMING=1`, SPLIT=2)
+
+Per-unzip launch on q8/4GPU (~1.3–1.5 ms total):
+
+| path | elements | time | share |
+|------|----------|------|-------|
+| nh | ~110–140 | ~0.2 ms | ~15% |
+| hang | ~1500–1670 | ~1.1–1.5 ms | **~85%** |
+
+Confirms hang path dominates wall inside unzip. Optimizing NH-only kernels will not move ETS. Raw: `tier0/tier2_unzip_hang_time.log`.
+
 ### Batch sync deferral (`DENDRO_UNZIP_BATCH_SYNC`)
 
 Default now: one `device_synchronize` after all `async_k` unzip batches (GPU can run while next batch’s MPI ghost wait runs). `=1` restores old per-batch sync.

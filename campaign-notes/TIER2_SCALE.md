@@ -46,6 +46,16 @@ Nodes c125-022 + c128-001 (separate idev jobs, hostfile MPI). `TIME_END=0.5`.
 vs 1GPU CUDA-aware (4.739s): 8GPU → **2.83×**, eff **0.35**. Cross-node helps but communication still dominates beyond one node.
 Raw: `tier0/tier25_2node_q8.log`. Script: `run_tier25_2node_q8.sh` (`-x LD_LIBRARY_PATH`, `--host node:4`).
 
+## Refresh (c125-022, deferred sync, ASYNC_K=1)
+
+| np | TIME_END | ETS (s) |
+|---:|---------:|--------:|
+| 1 | 0.5 | 4.754 |
+| 4 | 0.5 | 2.153 (eff 0.55 vs np1) |
+| 4 | 2.0 | 7.543 |
+
+Raw: `tier0/tier2_busy_c125.log`.
+
 ## Notes
 
 - Host-staged ghosts were the main limiter; CUDA-aware is the production build flag.
