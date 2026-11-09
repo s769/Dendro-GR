@@ -8,8 +8,8 @@ Do **not** run filler ETS loops. When a GPU task finishes, start the next item t
 |---|------|------------|--------|
 | 1–16 | Tier 3.1 gauge→χ→gt→K→At TL gates + 3.2 Richardson | mixed | **done** (see prior rows in git history / TIER3_TL_PLAN) |
 | 17 | Tier 3.3 sep-cost scout (reused TPID) | yes | **provisional** (`TIER33_ORBITS.md`) |
-| **B0** | **2.1 NCU on `eval_rhs3_pt_async`** (regs/spills/occ) | yes (short) | **next** |
-| **B1** | **2.1 staged algebra** (bit-id) if NCU shows reg headroom | mixed | queued (after B0) |
+| **B0** | **2.1 NCU on `eval_rhs3_pt_async`** (regs/spills/occ) | yes (short) | **done** (56 regs; **local spill heavy**; occ 17% **smem-limited**) |
+| **B1** | **2.1 staged algebra** (bit-id) — kill local spills | mixed | **next** |
 | **B2** | **K members/CTA interleave** — speedup/member vs K @ 64/256/2048 | yes | queued (after B1) |
 | **B3** | Pack K ghost msgs + one RHS launch; measure fine-level | yes | queued (after B2) |
 | 16b | Gt TL + Ricci/lap pieces; fused emit | mixed | parked (behind B0–B3) |

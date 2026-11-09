@@ -1,26 +1,37 @@
 # Tier 2.1 — staged algebra
 
-## Prior art (parked)
+## GB200 NCU (`eval_rhs3_pt_async`, q8, 2026-11-08, c106)
 
-`BSSN_GR/cuda/scripts/gen_gauge6_point.py` already prototyped deferring DD seconds until before K:
+Report: `tier0/rhs_pt_async_occ.ncu-rep` · CSV: `tier0/tier21_ncu_rhs.csv` · log: `tier0/tier21_ncu_rhs.log`
 
-> bit-identical but **slower** on A100 (0.157s vs 0.137s) — the 11-var reload costs more than the live-range win. Keep unstaged as default.
+| metric | value |
+|--------|------:|
+| Registers / thread | **56** |
+| Dynamic smem / block | **17.58 KB** |
+| Theoretical / achieved occupancy | **17.2% / 17.2%** |
+| Occupancy limiter (NCU) | **shared memory** |
+| Local mem spilling requests | **109M (100% overhead)** |
+| Local mem share of L1TEX sectors | **84.3%** |
+| Compute (SM) / Memory / DRAM throughput | 13.5% / 38.7% / 23.2% |
+| FP64 peak (roofline note) | ~**7%** |
+| Eligible warps / scheduler | **0.13** |
+| Warp cycles / issued insn | 24.9 (L1TEX scoreboard ~53%) |
 
-`HANDOFF_NEXT.md` C1 still lists staged algebra as a candidate from NCU (L1TEX long-scoreboard, 56 regs, 0 spills → target ≤46 regs).
+**Gate:** spills + local-mem dominance → **unpark 2.1**. Staging is required before K/CTA interleave (BATCHING.md): 56 regs × K and 17.6 KB×K do not leave headroom; cutting live ranges / killing local spills is the lever. Occupancy is also smem-bound → K/CTA must keep **one var tile** in smem (user note), not K tiles.
 
-## Status on GB200 / PT_ASYNC
+## Prior art (A100)
 
-Not re-measured yet under CUDA-aware + PT_ASYNC on Horizon. Unzip/list-infra took priority and is **no-go**.
+`gen_gauge6_point.py` deferred DD seconds until before K: bit-identical but **slower** on A100 (0.157 vs 0.137) — 11-var gmem reload cost more than the live-range win. Unstaged stayed default.
 
-## Plan when revisiting
+GB200 result changes the priority: local mem is crushing L1TEX; a reload that removes spills can still win even if A100 lost.
 
-1. NCU on `eval_rhs3_pt_async` @ q8/4GPU: regs, spills, achieved occ, scoreboard.
-2. Only if spills or reg pressure show headroom: regenerate staged algebra from SymPy (`CodeGen/bssn_manually_staged.py` / `bssn.py --staged_type staged`) behind an env flag.
-3. A/B ETS + bit-id vs unstaged.
+## Plan
 
-**Superseded by `BATCHING.md`:** staged algebra is now **first** in the bankable-batching order (regs must drop before K/CTA interleave). Unzip/list no-gos are parked; TL gauge harnesses are largely done.
+1. ~~NCU~~ **done** (above).
+2. Identify local-mem culprits (large autos / high live range in `gauge6_point_async.cpp`).
+3. Regen staged algebra (`CodeGen/bssn_manually_staged.py` / `--staged_type`) behind env; A/B ETS + bit-id vs unstaged on c106.
+4. Only then B2: K/CTA interleave speedup curve.
 
-## Current
+## Status
 
-- Script: `run_tier21_ncu_rhs.sh` → `tier0/tier21_ncu_rhs.log` + `rhs_pt_async_occ.ncu-rep`
-- Gate: if spills>0 or regs leave no room for K≥4 interleave → stage; if already lean, skip regen and go to B2 K/CTA curve.
+**B0 done → B1 in progress.**
