@@ -68,3 +68,23 @@ Also on c104-018: ensemble K refresh (64bl K=8 → 1.55× serial-K; 256bl → 1.
 | q8 short | 4670 | 3–13 | 14.251 | 8.94 | 23 |
 
 q8 hist bit-matches prior 1-GPU `mesh_q8.log`. Artifacts: `tier0/q4_short_4gpu_c104-018.log`, `tier0/q8_hist_4gpu.log`, `run_q8_hist_4gpu.sh`.
+
+## 2026-11-09 REVISED dual-res FD (after init-mesh replay fix) — supersedes the "fails" verdict above
+
+Cause of earlier 37x disagreement: replay skipped init-grid refinement (see `TIER1_MESH_REPLAY.md`).
+Re-run (`run_tier15_dualres_v2.sh`, `run_tier15_dualres_scan.sh`; c110-001/c103-009; logs `tier0/dualres_v2_*.log`, `tier0/dualres_scan_*.log`).
+Observable: C_HAM L2 at TIME_END=1.0, q1, frozen mesh, d/d(BH1.MASS) about 0.4824, central FD.
+
+Self-check (record vs replay, same mass): rel diff **1.8e-13 (coarse), 1.0e-12 (fine)** — replay now faithful.
+
+| eps | coarse dC_HAM/dm | fine dC_HAM/dm |
+|----:|-----------------:|---------------:|
+| 3e-4 | -4.210e-6 | -3.907e-6 |
+| 1e-3 | -4.143e-6 | -3.514e-6 |
+| 3e-3 | -4.082e-6 | -3.757e-6 |
+| 1e-2 | -4.009e-6 | -3.862e-6 |
+
+Coarse: smooth O(eps^2) drift, +-2.5% over 1.5 decades -> clean plateau. Fine: +-5%, non-monotone (eps=1e-3 low) — small unexplained non-smoothness, not yet diagnosed.
+Coarse vs fine differ ~10% (discretization-level), same sign/magnitude. **Dual-res gate: PASS for C_HAM (loose, ~10%).**
+Caveats: one parameter, one observable (C_HAM L2 — a constraint norm, not the waveform), 16/31 samples. Waveform (psi4 phase) dual-res FD NOT yet done — that is the observable that matters for inference.
+**Decision (per handoff 6.4): do NOT build the full TLM now.** Existing TL gates stay as scaffolding. Re-open only if waveform-phase FD plateau (next) is poor.

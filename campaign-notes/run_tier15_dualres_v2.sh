@@ -24,9 +24,9 @@ PY
   ln -sfn "${TPID}" "${d}/rit_q1_tpid_sol.bin"
   cd "${d}"
   if [[ "$mode" == record ]]; then
-    env DENDRO_RHS_PT_ASYNC=1 DENDRO_MESH_RECORD="${meshdir}" "${BIN}" "${d}/local.par.toml" 1 >run.log 2>&1
+    mpirun -np 1 env DENDRO_RHS_PT_ASYNC=1 DENDRO_MESH_RECORD="${meshdir}" "${BIN}" "${d}/local.par.toml" 1 >run.log 2>&1
   else
-    env DENDRO_RHS_PT_ASYNC=1 DENDRO_MESH_REPLAY="${meshdir}" "${BIN}" "${d}/local.par.toml" 1 >run.log 2>&1
+    mpirun -np 1 env DENDRO_RHS_PT_ASYNC=1 DENDRO_MESH_REPLAY="${meshdir}" "${BIN}" "${d}/local.par.toml" 1 >run.log 2>&1
   fi
   python3 - <<PY
 from pathlib import Path
@@ -65,7 +65,7 @@ done
 
 python3 - <<'PY'
 from pathlib import Path
-OUT=Path('/home1/08435/srvenkat/Dendro-GR-runs/tier15_dualres')
+OUT=Path('/home1/08435/srvenkat/Dendro-GR-runs/tier15_dualres_v2')
 eps=1e-3
 print('res\tFD_central_C_HAM')
 for res in ['coarse','fine']:

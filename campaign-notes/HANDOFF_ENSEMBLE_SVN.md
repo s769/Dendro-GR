@@ -71,7 +71,7 @@ Per item: what changed, numbers in the same format as GB200_RESULTS.md, and for 
 | 1.3 ensemble K (v1) | **done** | `grid.y=K`; @64bl K=8 → 5.7× single (`TIER1_ENSEMBLE.md`); K/CTA still open |
 | 1.4 bit-id | **mostly done** | min-det ordered fold bit-id; residual ~1e-18 in L2 norms (`TIER1_BITID.md`) |
 | 1.nf non-fiducial init | **done** | skip init WAMR under replay; record/replay OK on c101-014 |
-| 1.5 FD Jacobian | **done (gate caution)** | short C_HAM plateau OK; dual-res coarse −1.662e-6 vs fine −6.153e-5 — no dual-res agreement (`TIER1_FD.md`) |
+| 1.5 FD Jacobian | **done (REVISED: PASS for C_HAM)** | init-mesh replay bug caused earlier dual-res failure; revised table in `TIER1_FD.md`; waveform FD still open |
 | 2.4 short q4/q8 4GPU | **done** | q4 ETS≈4.42s ceiling 10.7×; q8 ETS≈8.94s ceiling 14.3× (`tier0/q{4,8}_*`) |
 | 1.3 v2 K/CTA | **done (no-go)** | CTA-serial K-share slower than v1 at 64bl (8.1× vs 5.7× single); keep v1 (`TIER1_ENSEMBLE_V2.md`) |
 | 2.5 q8 strong scale | **done (weak)** | 1→4 GPU ETS 4.71→3.03s (eff 0.39); prior 4GPU nums suspect CVD=0 (`TIER2_SCALE.md`) |

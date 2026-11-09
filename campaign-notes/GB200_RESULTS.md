@@ -48,3 +48,15 @@ DENDRO_RHS_PT_ASYNC=1   # PRODUCTION — FP64 bit-id interior + stock faces
 DENDRO_RHS_PT_F32SU=1   # HEDGE only — faster; finish A3 before trusting at high-q
 DENDRO_RHS_F32C=1       # older mixed-precision experiment
 ```
+
+## Baseline re-verification 2026-11-09 (c103-009, `rhsgpu_test 2048 20 0`, current build, lb(343,1))
+Log: `tier0/verify_baselines_c103-009*.log`
+
+| Path | Time (s) | l_inf vs CPU (U_GT0 / U_B0) | notes |
+|------|---------:|-----------------------------|-------|
+| stock | 0.107–0.116 | 4.9e-14 / 6.7e-14 | matches handoff |
+| PT_ASYNC | 0.044–0.050 | identical to stock | **~2.3x stock** (handoff said 1.7x; lb1 gain) |
+| PT_ASYNC_WHILEHOT | 0.035 | identical l_inf; vs ASYNC 98,987/108M pts differ, max_rel 6.2e-16 | opt-in, **ulp-level not bit-id**; -28% vs ASYNC |
+| PT_F32SU | 0.058 | CHI 2.3e-6, GT0 4.2e-6 | slower than ASYNC under lb1; parked |
+
+Harness gotcha: whilehot bit-id compare is only valid if `DENDRO_TIME_PT_ASYNC=1` is ALSO set (reference comes from ASYNC run); alone it compares against garbage (looks like 100% mismatch).
