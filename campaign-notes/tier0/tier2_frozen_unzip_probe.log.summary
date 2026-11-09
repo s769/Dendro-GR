@@ -1,0 +1,13 @@
+[unzip-k-bench] serial_extra K=2 launches=1 5.772ms (5.772ms/launch)
+[unzip-k-bench] serial_extra K=2 launches=1 5.724ms (5.724ms/launch)
+[unzip-k-bench] serial_extra K=2 launches=1 5.031ms (5.031ms/launch)
+ ETS time (max) : 3.17895
+[unzip-k-bench] serial_extra K=4 launches=3 17.699ms (5.900ms/launch)
+[unzip-k-bench] serial_extra K=4 launches=3 16.557ms (5.519ms/launch)
+[unzip-k-bench] serial_extra K=4 launches=3 15.342ms (5.114ms/launch)
+ ETS time (max) : 4.6554
+[unzip-k-bench] serial_extra K=8 launches=7 40.691ms (5.813ms/launch)
+[unzip-k-bench] serial_extra K=8 launches=7 35.344ms (5.049ms/launch)
+[unzip-k-bench] serial_extra K=8 launches=7 33.282ms (4.755ms/launch)
+ ETS time (max) : 7.5915
+TIER2_FROZEN_UNZIP_PROBE_DONE

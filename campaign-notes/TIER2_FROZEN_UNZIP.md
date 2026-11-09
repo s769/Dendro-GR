@@ -24,5 +24,18 @@ RHS already reuses block geometry via `grid.y=K` / `kshare`. Unzip still pays fu
 
 ## Status
 
-- Design only. Next: microbench in `rhsgpu_test` or a tiny `unzip_k_bench` launching current kernel K times vs a K-loop prototype.
-- Hang NCU + TB88 closed: see `TIER2_UNZIP.md`.
+### Serial-K ceiling (`DENDRO_UNZIP_K_BENCH`, q8/1GPU, `TIME_END=0.25`, c125)
+
+| K | extra launches | ~ms/launch | ETS (s) |
+|--:|---------------:|-----------:|--------:|
+| 2 | 1 | ~5.5 | 3.18 |
+| 4 | 3 | ~5.5 | 4.66 |
+| 8 | 7 | ~5.2 | 7.59 |
+
+Near-linear: serial ensemble unzip ≈ K×. Room for batching only if shared geometry beats gather cost (NCU says gather dominates → expect modest, RHS-like ~1.2–1.5×, not K×).
+
+Raw: `tier0/tier2_frozen_unzip_probe.log`. Hang NCU + TB88 closed: `TIER2_UNZIP.md`.
+
+### Next coding
+
+True K-batch `__unzip_cg1__2`: `grid.y=K`, member stride on `dptr_in`/`dptr_out`, share `refEL`+hang setup inside CTA or across y. Compare to serial ceiling above.
