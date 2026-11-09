@@ -1,0 +1,11 @@
+[unzip-split] elements=1660 active=1660 skipped0=0 hang=1416 (85.3% of active) nh=244
+[unzip-split] elements=4404 active=4404 skipped0=0 hang=4164 (94.6% of active) nh=240
+[unzip-split] elements=4131 active=4131 skipped0=0 hang=3935 (95.3% of active) nh=196
+[unzip-split] elements=4467 active=4467 skipped0=0 hang=4448 (99.6% of active) nh=19
+[unzip-split] elements=4369 active=4369 skipped0=0 hang=3131 (71.7% of active) nh=1238
+[unzip-split] elements=4670 active=4670 skipped0=0 hang=2820 (60.4% of active) nh=1850
+[unzip-split] elements=4390 active=4390 skipped0=0 hang=4252 (96.9% of active) nh=138
+[unzip-split] elements=4670 active=4670 skipped0=0 hang=4337 (92.9% of active) nh=333
+[unzip-gather-stats] n=4337 unique_cg min=343 med=343 max=343 mean=343.0 /nPe=343 (compress~1.00x) jump_lex_mean=3413120 jump_sorted_mean=157742 sort_jump_ratio=0.046
+ ETS time (max) : 2.50036
+TIER2_GATHER_STATS_DONE

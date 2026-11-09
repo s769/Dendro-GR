@@ -13,11 +13,11 @@ Do **not** run filler ETS loops. When a GPU task finishes, start the next item t
 | **B1-defer** | deferred DD seconds in PT_ASYNC | yes | **NO-GO** (+7.7% ETS on GB200; same as A100) |
 | **B1-scoped** | section-scoped PT (restencil late stages) | yes | **NO-GO** (+123% ETS) |
 | **B1-lb** | `launch_bounds(343,3)→(343,1)` on PT_ASYNC | yes | **done** (~**−15%** ETS; keep) |
-| **B1** | **2.1 live-range/CSE without restencil** (for K/CTA headroom) | mixed | **next** |
+| **B1** | **2.1 live-range/CSE without restencil** (for K/CTA headroom) | mixed | **CSE NO-GO**; **while-hot keep opt-in** (q8 −0.7%, q1 −0.23%; `tier21_whilehot_ab.md`) |
 | **B2** | **K members/CTA interleave** — speedup/member vs K @ 64/256/2048 | yes | **baseline done** (`tier0/tier21_ensK_baseline.md`; small-nblocks only) |
-| **B3** | Pack K ghost msgs + one RHS launch; measure fine-level | yes | **next GPU** |
-| 16b | Gt TL + Ricci/lap pieces; fused emit | mixed | parked (behind B0–B3) |
-| 18 | Tier 3.3: re-TPID per sep / TARGET_ORBITS | mixed | parked |
+| **B3** | Pack K ghost msgs + one RHS launch; measure fine-level | yes | **RHS done** (2.89×@32bl); pack API in; **q8+q1 pack NO-GO** (0.5–0.9×) — park pack wire until few-block LTS |
+| 16b | Gt TL + Ricci/lap pieces; fused emit | mixed | **Gt+lap+toyRicci+fused emit 16/16**; full Ricci/C³ next |
+| 18 | Tier 3.3: re-TPID per sep / TARGET_ORBITS | mixed | **done scaffold+re-TPID N=3/5/8 + short cost**; longer cost next |
 | T_fp32 | FP32-tangent plateau vs Tier 1.5 FD plot | yes | later (after B2; not first) |
 
 Automation: when a new idev goes `R`, run the **next queued GPU task**, not a keep-alive cycle.

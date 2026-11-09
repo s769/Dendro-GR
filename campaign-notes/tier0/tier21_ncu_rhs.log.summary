@@ -1,0 +1,6 @@
+==PROF== Profiling "void device::eval_rhs3_pt_async<(int)3, (int)13, (int)13>(double *, const double *, const BlockGPU3D *, unsigned int, unsigned int, double, unsigned int)": 0%....50%....100% - 41 passes
+==PROF== Profiling "void device::eval_rhs3_pt_async<(int)3, (int)13, (int)13>(double *, const double *, const BlockGPU3D *, unsigned int, unsigned int, double, unsigned int)": 0%....50%....100% - 41 passes
+==PROF== Profiling "void device::eval_rhs3_pt_async<(int)3, (int)13, (int)13>(double *, const double *, const BlockGPU3D *, unsigned int, unsigned int, double, unsigned int)": 0%....50%....100% - 41 passes
+==PROF== Profiling "void device::eval_rhs3_pt_async<(int)3, (int)13, (int)13>(double *, const double *, const BlockGPU3D *, unsigned int, unsigned int, double, unsigned int)": 0%....50%....100% - 41 passes
+==PROF== Profiling "void device::eval_rhs3_pt_async<(int)3, (int)13, (int)13>(double *, const double *, const BlockGPU3D *, unsigned int, unsigned int, double, unsigned int)": 0%....50%....100% - 41 passes
+==PROF== Profiling "void device::eval_rhs3_pt_async<(int)3, (int)13, (int)13>(double *, const double *, const BlockGPU3D *, unsigned int, unsigned int, double, unsigned int)": 0%....50%....100% - 41 passes

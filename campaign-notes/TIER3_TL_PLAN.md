@@ -48,5 +48,10 @@ Differentiated BSSN RHS: given background state `u` and K tangent vectors `v[k]`
 ### Next coding slice
 
 1. ~~gauge / χ / gt00 full Lie~~ **done**.
-2. ~~K TL (δK/δα product+KO)~~ **done** (`tl_K_test`). At/Gt + lap(α); fused emit.
-3. Tier 3.3 hybridization-length (orbits) knob.
+2. ~~K TL (δK/δα product+KO)~~ **done** (`tl_K_test`).
+3. ~~At00 algebraic+Lie~~ **done** (`tl_At_test`).
+4. ~~Gt0 Lie+Gtk+KO~~ **done** (`tl_Gt_test`, 2026-11-09 c105; eps 1e-6/1e-7 GATE PASS). Ricci / β-seconds / αA held out.
+5. ~~lap(α) flat~~ **done** (`tl_lap_alpha_test`, 2026-11-09 c105).
+6. ~~toy Ricci×α~~ **done** (`tl_Ricci_test`, flat linearized R00=−½Δgt00; c110 GATE PASS). Full C³·∇α / conformal Ricci next.
+7. ~~Fused emit K/At/Gt Lie~~ **done** (`bssn_tl_gauge.py` 16/16 + `bssn_tl_gauge.inc.cuh`, 2026-11-09). Full Ricci/C³ and production link still open.
+6. Tier 3.3 hybridization-length (orbits) knob — scaffold done; re-TPID next.

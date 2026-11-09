@@ -1,0 +1,907 @@
+diff --git a/GPU/include/mesh_gpu.cuh b/GPU/include/mesh_gpu.cuh
+index 0808146..2529b95 100644
+--- a/GPU/include/mesh_gpu.cuh
++++ b/GPU/include/mesh_gpu.cuh
+@@ -10,6 +10,9 @@
+  */
+ 
+ #pragma once
++#include <algorithm>
++#include <cstdlib>
++#include <vector>
+ #include "asyncExchangeContex.h"
+ #include "device.h"
+ #include "mesh_gpu.h"
+@@ -1524,10 +1527,78 @@ GLOBAL_FUNC __launch_bounds__(64) void __unzip_cg__2(
+     return;
+ }
+ 
++/** One-shot: unique CG ids + adjacent-jump lex vs sorted (queue #7). */
++template <DEVICE_UINT p>
++GLOBAL_FUNC void __unzip_gather_unique_stats(
++    const MeshGPU* const dptr_mesh, const DEVICE_UINT* ele_ids,
++    DEVICE_UINT* unique_counts, DEVICE_UINT* jump_lex,
++    DEVICE_UINT* jump_sorted) {
++    const DEVICE_UINT ele =
++        (ele_ids != nullptr) ? ele_ids[GPUDevice::block_id_x()]
++                             : static_cast<DEVICE_UINT>(GPUDevice::block_id_x());
++    if (GPUDevice::thread_id_x() != 0 || GPUDevice::thread_id_y() != 0) return;
++    const DEVICE_UINT nx  = p + 1;
++    const DEVICE_UINT nPe = nx * nx * nx;
++    const DEVICE_UINT* const e2n_cg = dptr_mesh->m_e2n_cg;
++    DEVICE_UINT uniq = 0;
++    DEVICE_UINT jlex = 0;
++    for (DEVICE_UINT i = 0; i < nPe; ++i) {
++        const DEVICE_UINT id = e2n_cg[ele * nPe + i];
++        DEVICE_BOOL seen     = false;
++        for (DEVICE_UINT j = 0; j < i; ++j) {
++            if (e2n_cg[ele * nPe + j] == id) {
++                seen = true;
++                break;
++            }
++        }
++        if (!seen) ++uniq;
++        if (i + 1 < nPe) {
++            const DEVICE_UINT a = e2n_cg[ele * nPe + i];
++            const DEVICE_UINT b = e2n_cg[ele * nPe + i + 1];
++            jlex += (a > b) ? (a - b) : (b - a);
++        }
++    }
++    // insertion-sort copy for sorted adjacent jumps (nPe=343, once)
++    DEVICE_UINT ids[343];
++#pragma unroll 1
++    for (DEVICE_UINT i = 0; i < nPe; ++i) ids[i] = e2n_cg[ele * nPe + i];
++    for (DEVICE_UINT i = 1; i < nPe; ++i) {
++        DEVICE_UINT key = ids[i];
++        DEVICE_INT j    = (DEVICE_INT)i - 1;
++        while (j >= 0 && ids[j] > key) {
++            ids[j + 1] = ids[j];
++            --j;
++        }
++        ids[j + 1] = key;
++    }
++    DEVICE_UINT jsort = 0;
++    for (DEVICE_UINT i = 0; i + 1 < nPe; ++i) {
++        const DEVICE_UINT a = ids[i];
++        const DEVICE_UINT b = ids[i + 1];
++        jsort += (a > b) ? (a - b) : (b - a);
++    }
++    const DEVICE_UINT bx = GPUDevice::block_id_x();
++    unique_counts[bx]    = uniq;
++    jump_lex[bx]         = jlex;
++    jump_sorted[bx]      = jsort;
++}
++
+ template <typename T, DEVICE_UINT p, DEVICE_UINT PW>
+ GLOBAL_FUNC void __unzip_cg1__2(const MeshGPU* const dptr_mesh,
+-                                const T* const dptr_in, T* const dptr_out) {
+-    const DEVICE_UINT ele      = GPUDevice::block_id_x();
++                                const T* const dptr_in, T* const dptr_out,
++                                const DEVICE_UINT* ele_ids,
++                                DEVICE_UINT K = 1,
++                                DEVICE_UINT in_member_stride = 0,
++                                DEVICE_UINT out_member_stride = 0,
++                                DEVICE_UINT sort_gather = 0) {
++    // Optional remap: grid.x indexes into ele_ids (hanging/non-hanging split).
++    // Pass nullptr for contiguous [0, num_elements) launch.
++    // K>1: share refEL / element geometry across ensemble members (stride 0 =
++    // same buffer; timing / smoke). Production ensemble uses nonzero strides.
++    if (K < 1) K = 1;
++    const DEVICE_UINT ele =
++        (ele_ids != nullptr) ? ele_ids[GPUDevice::block_id_x()]
++                             : static_cast<DEVICE_UINT>(GPUDevice::block_id_x());
+     // const DEVICE_UINT blk_id = GPUDevice::block_id_y();
+     const DEVICE_UINT var      = GPUDevice::block_id_z();
+ 
+@@ -1546,6 +1617,8 @@ GLOBAL_FUNC void __unzip_cg1__2(const MeshGPU* const dptr_mesh,
+     SHARED_MEM T v2[nPe];
+     // v3[0] interp in , v3[1] interp out
+     SHARED_MEM T v3[2][nPe];
++    // Sort-by-cg gather (DENDRO_UNZIP_SORT_GATHER): permutation of local idxs.
++    SHARED_MEM DEVICE_UINT sort_idx[nPe];
+ 
+     // this will increase shared memory leading the low occupancy
+     // SHARED_MEM T u_refine[8][nPe];
+@@ -1575,12 +1648,50 @@ GLOBAL_FUNC void __unzip_cg1__2(const MeshGPU* const dptr_mesh,
+ 
+     GPUDevice::sync_threads();
+ 
++    for (DEVICE_UINT km = 0; km < K; ++km) {
++    const T* const dptr_in_k = dptr_in + km * in_member_stride;
++    T* const dptr_out_k = dptr_out + km * out_member_stride;
++
+     if (hflag != 0) {
+-        if (tx < nx && ty < nx)
++        if (sort_gather) {
++            // Load CG values in cg_id order (tighter adjacent jumps), then
++            // scatter into local DG slots for p2c.
++            const DEVICE_UINT tid =
++                tx + nx * ty;  // 0..nx*nx-1; also cover tz via loop
++            const DEVICE_UINT nthreads = nx * nx;
++            for (DEVICE_UINT t = tid; t < nPe; t += nthreads) sort_idx[t] = t;
++            GPUDevice::sync_threads();
++            // Odd-even transposition sort of sort_idx by e2n_cg[ele*nPe+idx].
++            for (DEVICE_UINT phase = 0; phase < nPe; ++phase) {
++                const DEVICE_UINT parity = phase & 1u;
++                for (DEVICE_UINT pair = tid; (2u * pair + parity + 1u) < nPe;
++                     pair += nthreads) {
++                    const DEVICE_UINT i  = 2u * pair + parity;
++                    const DEVICE_UINT ia = sort_idx[i];
++                    const DEVICE_UINT ib = sort_idx[i + 1];
++                    const DEVICE_UINT ca = e2n_cg[ele * nPe + ia];
++                    const DEVICE_UINT cb = e2n_cg[ele * nPe + ib];
++                    if (ca > cb) {
++                        sort_idx[i]     = ib;
++                        sort_idx[i + 1] = ia;
++                    }
++                }
++                GPUDevice::sync_threads();
++            }
++            // Coalescing-friendly load into v2, then permute into v3[0].
++            for (DEVICE_UINT t = tid; t < nPe; t += nthreads) {
++                const DEVICE_UINT li = sort_idx[t];
++                v2[t] = dptr_in_k[var * cg_sz + e2n_cg[ele * nPe + li]];
++            }
++            GPUDevice::sync_threads();
++            for (DEVICE_UINT t = tid; t < nPe; t += nthreads)
++                v3[0][sort_idx[t]] = v2[t];
++        } else if (tx < nx && ty < nx) {
+             for (DEVICE_INT tz = 0; tz < nx; tz++)
+                 v3[0][IDX_DG(tx, ty, tz)] =
+-                    dptr_in[var * cg_sz +
+-                            e2n_cg[ele * nPe + IDX_DG(tx, ty, tz)]];
++                    dptr_in_k[var * cg_sz +
++                              e2n_cg[ele * nPe + IDX_DG(tx, ty, tz)]];
++        }
+ 
+         GPUDevice::sync_threads();
+         DEVICE_UINT mid_bit = max_depth - elem_node.m_level;
+@@ -1628,7 +1739,7 @@ GLOBAL_FUNC void __unzip_cg1__2(const MeshGPU* const dptr_mesh,
+         if (tx < nx && ty < nx)
+             for (DEVICE_INT tz = 0; tz < nx; tz++)
+                 dgVec[IDX_DG(tx, ty, tz)] =
+-                    dptr_in[var * cg_sz +
++                    dptr_in_k[var * cg_sz +
+                             e2n_cg[ele * nPe + IDX_DG(tx, ty, tz)]];
+     }
+ 
+@@ -1676,7 +1787,7 @@ GLOBAL_FUNC void __unzip_cg1__2(const MeshGPU* const dptr_mesh,
+         ek=(elem_node.m_z-blkNode.m_z)>>(max_depth-patch_level);
+ 
+             for(DEVICE_UINT tz=0; tz<nx; tz++)
+-                dptr_out[var * unzip_sz + offset + (ek*p+tz+PW) * (ly * lx) +(ej
++                dptr_out_k[var * unzip_sz + offset + (ek*p+tz+PW) * (ly * lx) +(ej
+         * p + ty + PW) * (lx) + (ei*p + tx + PW)] = dgVec[IDX_DG(tx,ty,tz)];
+ 
+             return;
+@@ -1702,7 +1813,7 @@ GLOBAL_FUNC void __unzip_cg1__2(const MeshGPU* const dptr_mesh,
+                     const DEVICE_INT kkz    = std::round((zz - zmin) * invhh);
+ 
+                     if ((kkz >= 0 && kkz < lz))
+-                        dptr_out[var * unzip_sz + offset + kkz * lx * ly +
++                        dptr_out_k[var * unzip_sz + offset + kkz * lx * ly +
+                                  jjy * lx + iix] = dgVec[IDX_DG(tx, ty, tz)];
+                 }
+             }
+@@ -1731,7 +1842,7 @@ GLOBAL_FUNC void __unzip_cg1__2(const MeshGPU* const dptr_mesh,
+                         const DEVICE_INT kkz = std::round((zz - zmin) * invhh);
+ 
+                         if ((kkz >= 0 && kkz < lz))
+-                            dptr_out[var * unzip_sz + offset + kkz * lx * ly +
++                            dptr_out_k[var * unzip_sz + offset + kkz * lx * ly +
+                                      jjy * lx + iix] =
+                                 dgVec[IDX_DG(tx, ty, tz)];
+                     }
+@@ -1794,11 +1905,11 @@ GLOBAL_FUNC void __unzip_cg1__2(const MeshGPU* const dptr_mesh,
+                                 std::round((zz - zmin) * invhh);
+ 
+                             // if((kkz>=0 && kkz<lz))
+-                            //     dptr_out[var*unzip_sz + offset + kkz*lx*ly +
++                            //     dptr_out_k[var*unzip_sz + offset + kkz*lx*ly +
+                             //     jjy*lx + iix] =
+                             //     u_refine[child][IDX_DG(tx,ty,tz)];
+                             if ((kkz >= 0 && kkz < lz))
+-                                dptr_out[var * unzip_sz + offset +
++                                dptr_out_k[var * unzip_sz + offset +
+                                          kkz * lx * ly + jjy * lx + iix] =
+                                     v3[1][IDX_DG(tx, ty, tz)];
+                         }
+@@ -1810,6 +1921,9 @@ GLOBAL_FUNC void __unzip_cg1__2(const MeshGPU* const dptr_mesh,
+         }
+     }
+ 
++    GPUDevice::sync_threads();
++    }  // km ensemble share
++
+     return;
+ }
+ 
+@@ -2320,6 +2434,54 @@ GLOBAL_FUNC __launch_bounds__(GPU_MAX_THREADS_PER_BLOCK) void __write_sb_cg__(
+     return;
+ }
+ 
++// B3: K members → sendbuf with per-neighbor contiguous K-pack:
++//   out[K * (dof * sf + var * sc + k-sf) + mem]  so one Isend of K*dof*sc.
++template <typename T>
++GLOBAL_FUNC __launch_bounds__(GPU_MAX_THREADS_PER_BLOCK) void __write_sb_cg_ensK__(
++    const MeshGPU* const dptr_mesh, const T* const dptr_in, T* const dptr_out,
++    DEVICE_UINT K, DEVICE_UINT member_stride, DEVICE_UINT /*sendBSz*/) {
++    const DEVICE_UINT proc_id = GPUDevice::block_id_y();
++    const DEVICE_UINT var     = GPUDevice::block_id_z();
++    const DEVICE_UINT dof     = GPUDevice::grid_dim_z();
++    const DEVICE_UINT sf      = dptr_mesh->m_cg_send_f[proc_id];
++    const DEVICE_UINT sc      = dptr_mesh->m_cg_send_c[proc_id];
++    const DEVICE_UINT cg_sz   = dptr_mesh->m_oct_shared_sz;
++    const DEVICE_UINT stride  = GPUDevice::block_dim_x();
++    const DEVICE_UINT t_id =
++        GPUDevice::thread_id_x() + GPUDevice::block_id_x() * stride;
++    for (DEVICE_UINT mem = 0; mem < K; ++mem) {
++        const T* in = dptr_in + mem * member_stride;
++        for (unsigned int k = sf + t_id; k < sf + sc; k += stride) {
++            const DEVICE_UINT sm_sm = dptr_mesh->m_cg_send_sm[k];
++            const DEVICE_UINT slot  = dof * sf + var * sc + (k - sf);
++            dptr_out[K * slot + mem] = in[var * cg_sz + sm_sm];
++        }
++    }
++}
++
++template <typename T>
++GLOBAL_FUNC __launch_bounds__(GPU_MAX_THREADS_PER_BLOCK) void __read_rb_cg_ensK__(
++    const MeshGPU* const dptr_mesh, const T* const dptr_in, T* const dptr_out,
++    DEVICE_UINT K, DEVICE_UINT member_stride, DEVICE_UINT /*recvBSz*/) {
++    const DEVICE_UINT proc_id = GPUDevice::block_id_y();
++    const DEVICE_UINT var     = GPUDevice::block_id_z();
++    const DEVICE_UINT dof     = GPUDevice::grid_dim_z();
++    const DEVICE_UINT rf      = dptr_mesh->m_cg_recv_f[proc_id];
++    const DEVICE_UINT rc      = dptr_mesh->m_cg_recv_c[proc_id];
++    const DEVICE_UINT cg_sz   = dptr_mesh->m_oct_shared_sz;
++    const DEVICE_UINT stride  = GPUDevice::block_dim_x();
++    const DEVICE_UINT t_id =
++        GPUDevice::thread_id_x() + GPUDevice::block_id_x() * stride;
++    for (DEVICE_UINT mem = 0; mem < K; ++mem) {
++        T* out = dptr_out + mem * member_stride;
++        for (unsigned int k = rf + t_id; k < rf + rc; k += stride) {
++            const DEVICE_UINT rm_sm = dptr_mesh->m_cg_recv_sm[k];
++            const DEVICE_UINT slot  = dof * rf + var * rc + (k - rf);
++            out[var * cg_sz + rm_sm] = dptr_in[K * slot + mem];
++        }
++    }
++}
++
+ template <typename T>
+ GLOBAL_FUNC __launch_bounds__(GPU_MAX_THREADS_PER_BLOCK) void __read_rb_cg__(
+     const MeshGPU* const dptr_mesh, const T* const dptr_in, T* const dptr_out) {
+@@ -2462,14 +2624,198 @@ void MeshGPU::unzip_cg(const ot::Mesh* const pMesh,
+ 
+     assert(pMesh->getNumLocalMeshElements() ==
+            pMesh->getLocalBlockList().size());
+-    // dim3 gb  = dim3(m_unzip_grid[0],m_unzip_grid[1],dof);
+-    dim3 gb = dim3(m_unzip_grid[0], 1, dof);
+-    // dim3 gb1 = dim3(m_num_local_elements,1,dof);
++
++    // Queue #7: unique CG ids per hang element (compression headroom).
++    if (const char* gs = std::getenv("DENDRO_UNZIP_GATHER_STATS")) {
++        if (gs[0] == '1' && gs[1] == '\0') {
++            static bool once = false;
++            if (!once) {
++                once = true;
++                const DEVICE_UINT* ids = nullptr;
++                DEVICE_UINT nstat      = m_unzip_grid[0];
++                if (this->m_ele_ids_hang != nullptr && this->m_num_ele_hang > 0) {
++                    ids   = this->m_ele_ids_hang;
++                    nstat = this->m_num_ele_hang;
++                }
++                DEVICE_UINT *d_u = nullptr, *d_jl = nullptr, *d_js = nullptr;
++                cudaMalloc(&d_u, nstat * sizeof(DEVICE_UINT));
++                cudaMalloc(&d_jl, nstat * sizeof(DEVICE_UINT));
++                cudaMalloc(&d_js, nstat * sizeof(DEVICE_UINT));
++                __unzip_gather_unique_stats<6><<<nstat, dim3(1, 1, 1), 0, s>>>(
++                    dptr_mesh, ids, d_u, d_jl, d_js);
++                cudaStreamSynchronize(s);
++                std::vector<DEVICE_UINT> hu(nstat), hjl(nstat), hjs(nstat);
++                cudaMemcpy(hu.data(), d_u, nstat * sizeof(DEVICE_UINT),
++                           cudaMemcpyDeviceToHost);
++                cudaMemcpy(hjl.data(), d_jl, nstat * sizeof(DEVICE_UINT),
++                           cudaMemcpyDeviceToHost);
++                cudaMemcpy(hjs.data(), d_js, nstat * sizeof(DEVICE_UINT),
++                           cudaMemcpyDeviceToHost);
++                cudaFree(d_u);
++                cudaFree(d_jl);
++                cudaFree(d_js);
++                DEVICE_UINT mn = hu[0], mx = hu[0], sum = 0;
++                double sum_jl = 0, sum_js = 0;
++                for (DEVICE_UINT i = 0; i < nstat; ++i) {
++                    mn = std::min(mn, hu[i]);
++                    mx = std::max(mx, hu[i]);
++                    sum += hu[i];
++                    sum_jl += (double)hjl[i];
++                    sum_js += (double)hjs[i];
++                }
++                std::vector<DEVICE_UINT> sorted = hu;
++                std::sort(sorted.begin(), sorted.end());
++                const DEVICE_UINT med = sorted[nstat / 2];
++                const double mean = (double)sum / (double)nstat;
++                const double mjl  = sum_jl / (double)nstat;
++                const double mjs  = sum_js / (double)nstat;
++                printf("[unzip-gather-stats] n=%u unique_cg "
++                       "min=%u med=%u max=%u mean=%.1f /nPe=%u "
++                       "(compress~%.2fx) jump_lex_mean=%.0f "
++                       "jump_sorted_mean=%.0f sort_jump_ratio=%.3f\n",
++                       nstat, mn, med, mx, mean, 7u * 7u * 7u,
++                       (7.0 * 7.0 * 7.0) / mean, mjl, mjs,
++                       mjl > 0.0 ? (mjs / mjl) : 0.0);
++            }
++        }
++    }
++
++    // Default 7x7 matches p=6 (nx=7). DENDRO_UNZIP_TB88=1 → 8x8 (2 full warps;
++    // NCU: 49-thread blocks leave warp slots masked — A/B for hang-path).
+     dim3 tb = dim3(7, 7, 1);
+-    // printf("Grid : {%d, %d, %d} blocks. Blocks : {%d, %d, %d} threads.\n",
+-    // gb.x, gb.y, gb.z, tb.x, tb.y, tb.z);
+-    //__unzip_cg__2<T,6,3> <<<gb,tb,0,s>>> (dptr_mesh, dptr_in,dptr_out);
+-    __unzip_cg1__2<T, 6, 3><<<gb, tb, 0, s>>>(dptr_mesh, dptr_in, dptr_out);
++    if (const char* tb88 = std::getenv("DENDRO_UNZIP_TB88")) {
++        if (tb88[0] == '1' && tb88[1] == '\0') tb = dim3(8, 8, 1);
++    }
++    DEVICE_UINT sort_gather = 0;
++    if (const char* sg = std::getenv("DENDRO_UNZIP_SORT_GATHER")) {
++        if (sg[0] == '1' && sg[1] == '\0') sort_gather = 1;
++    }
++    // DENDRO_UNZIP_SPLIT:
++    //   1 = single launch over active (nmap>0) element IDs
++    //   2 = dual hang/nh launches (same kernel; usually hang-majority)
++    // Host MeshGPU fields — dptr_mesh is device-only.
++    const char* split_env = std::getenv("DENDRO_UNZIP_SPLIT");
++    const char mode =
++        (split_env && split_env[0] != '\0' && split_env[1] == '\0')
++            ? split_env[0]
++            : '0';
++
++    if (mode == '1' && this->m_ele_ids_active != nullptr &&
++        this->m_num_ele_active > 0) {
++        dim3 gb = dim3(this->m_num_ele_active, 1, dof);
++        __unzip_cg1__2<T, 6, 3><<<gb, tb, 0, s>>>(
++            dptr_mesh, dptr_in, dptr_out, this->m_ele_ids_active, 1, 0, 0,
++            sort_gather);
++    } else if (mode == '2' && this->m_ele_ids_hang != nullptr &&
++               this->m_ele_ids_nh != nullptr &&
++               (this->m_num_ele_hang + this->m_num_ele_nh) > 0) {
++        // Optional hang vs nh timing (DENDRO_UNZIP_TIMING=1): cuda events
++        // around each launch — once per process (rank 0 prints).
++        const char* time_env = std::getenv("DENDRO_UNZIP_TIMING");
++        const bool do_time =
++            time_env && time_env[0] == '1' && time_env[1] == '\0';
++        cudaEvent_t ev0, ev1, ev2;
++        if (do_time) {
++            cudaEventCreate(&ev0);
++            cudaEventCreate(&ev1);
++            cudaEventCreate(&ev2);
++            cudaEventRecord(ev0, s);
++        }
++        if (this->m_num_ele_nh > 0) {
++            dim3 gb = dim3(this->m_num_ele_nh, 1, dof);
++            __unzip_cg1__2<T, 6, 3><<<gb, tb, 0, s>>>(
++                dptr_mesh, dptr_in, dptr_out, this->m_ele_ids_nh, 1, 0, 0,
++                sort_gather);
++        }
++        if (do_time) cudaEventRecord(ev1, s);
++        if (this->m_num_ele_hang > 0) {
++            dim3 gb = dim3(this->m_num_ele_hang, 1, dof);
++            __unzip_cg1__2<T, 6, 3><<<gb, tb, 0, s>>>(
++                dptr_mesh, dptr_in, dptr_out, this->m_ele_ids_hang, 1, 0, 0,
++                sort_gather);
++        }
++        if (do_time) {
++            cudaEventRecord(ev2, s);
++            cudaEventSynchronize(ev2);
++            float ms_nh = 0.f, ms_h = 0.f;
++            cudaEventElapsedTime(&ms_nh, ev0, ev1);
++            cudaEventElapsedTime(&ms_h, ev1, ev2);
++            static int printed = 0;
++            if (printed < 3) {
++                printf("[unzip-time] nh=%u %.3fms hang=%u %.3fms "
++                       "(%.0f%% hang)\n",
++                       this->m_num_ele_nh, ms_nh, this->m_num_ele_hang, ms_h,
++                       (ms_nh + ms_h) > 0.f
++                           ? (100.f * ms_h / (ms_nh + ms_h))
++                           : 0.f);
++                printed++;
++            }
++            cudaEventDestroy(ev0);
++            cudaEventDestroy(ev1);
++            cudaEventDestroy(ev2);
++        }
++    } else {
++        dim3 gb = dim3(m_unzip_grid[0], 1, dof);
++        __unzip_cg1__2<T, 6, 3><<<gb, tb, 0, s>>>(
++            dptr_mesh, dptr_in, dptr_out, nullptr, 1, 0, 0, sort_gather);
++    }
++
++    // Queue #5: DENDRO_UNZIP_K_BENCH=<K> — serial-K ceiling (extra launches).
++    // DENDRO_UNZIP_KSHARE=<K> — one CTA loops K (refEL shared; stride 0 smoke).
++    if (const char* kb = std::getenv("DENDRO_UNZIP_K_BENCH")) {
++        const int K = std::atoi(kb);
++        if (K > 1) {
++            dim3 gb = dim3(m_unzip_grid[0], 1, dof);
++            cudaEvent_t e0, e1;
++            cudaEventCreate(&e0);
++            cudaEventCreate(&e1);
++            cudaEventRecord(e0, s);
++            for (int k = 1; k < K; ++k) {
++                __unzip_cg1__2<T, 6, 3><<<gb, tb, 0, s>>>(
++                    dptr_mesh, dptr_in, dptr_out, nullptr, 1, 0, 0,
++                    sort_gather);
++            }
++            cudaEventRecord(e1, s);
++            cudaEventSynchronize(e1);
++            float ms = 0.f;
++            cudaEventElapsedTime(&ms, e0, e1);
++            static int printed = 0;
++            if (printed < 3) {
++                printf("[unzip-k-bench] serial_extra K=%d launches=%d "
++                       "%.3fms (%.3fms/launch)\n",
++                       K, K - 1, ms, ms / (float)(K - 1));
++                printed++;
++            }
++            cudaEventDestroy(e0);
++            cudaEventDestroy(e1);
++        }
++    }
++    if (const char* ks = std::getenv("DENDRO_UNZIP_KSHARE")) {
++        const int K = std::atoi(ks);
++        if (K > 1) {
++            dim3 gb = dim3(m_unzip_grid[0], 1, dof);
++            cudaEvent_t e0, e1;
++            cudaEventCreate(&e0);
++            cudaEventCreate(&e1);
++            cudaEventRecord(e0, s);
++            __unzip_cg1__2<T, 6, 3><<<gb, tb, 0, s>>>(
++                dptr_mesh, dptr_in, dptr_out, nullptr,
++                static_cast<DEVICE_UINT>(K), 0, 0, sort_gather);
++            cudaEventRecord(e1, s);
++            cudaEventSynchronize(e1);
++            float ms = 0.f;
++            cudaEventElapsedTime(&ms, e0, e1);
++            static int printed_s = 0;
++            if (printed_s < 3) {
++                printf("[unzip-kshare] K=%d one_launch %.3fms "
++                       "(%.3fms/member equiv)\n",
++                       K, ms, ms / (float)K);
++                printed_s++;
++            }
++            cudaEventDestroy(e0);
++            cudaEventDestroy(e1);
++        }
++    }
+ }
+ 
+ template <typename T, typename stream>
+@@ -2788,4 +3134,137 @@ void MeshGPU::read_from_ghost_cg_end(ot::AsyncExchangeContex& ctx_host,
+     return;
+ }
+ 
++template <typename T, typename stream>
++void MeshGPU::read_from_ghost_cg_ensK_begin(
++    ot::AsyncExchangeContex& ctx_host, ot::AsyncExchangeContex& ctx_device,
++    const ot::Mesh* const pMesh, const MeshGPU* const dptr_mesh, T* dptr_vec,
++    unsigned int dof, unsigned int K, unsigned int member_stride, stream s) {
++    if (K < 1) K = 1;
++    if (K == 1) {
++        read_from_ghost_cg_begin<T, stream>(ctx_host, ctx_device, pMesh,
++                                            dptr_mesh, dptr_vec, dof, s);
++        return;
++    }
++    if (pMesh->getMPICommSizeGlobal() == 1 || (!pMesh->isActive())) return;
++
++    const std::vector<unsigned int>& se_c = pMesh->getNodalSendCounts();
++    const std::vector<unsigned int>& se_f = pMesh->getNodalSendOffsets();
++    const std::vector<unsigned int>& re_c = pMesh->getNodalRecvCounts();
++    const std::vector<unsigned int>& re_f = pMesh->getNodalRecvOffsets();
++    const std::vector<unsigned int>& send_plist = pMesh->getSendProcList();
++    const std::vector<unsigned int>& recv_plist = pMesh->getRecvProcList();
++    const unsigned int active_p = pMesh->getMPICommSize();
++    const unsigned int sendBSz  = (se_f[active_p - 1] + se_c[active_p - 1]);
++    const unsigned int recvBSz  = (re_f[active_p - 1] + re_c[active_p - 1]);
++
++    dim3 gb = dim3(m_max_send_cg / GPU_MAX_THREADS_PER_BLOCK + 1,
++                   pMesh->getMPICommSize(), dof);
++    dim3 tb = dim3(GPU_MAX_THREADS_PER_BLOCK, 1, 1);
++    T* s_buff = (T*)ctx_device.getSendBuffer();
++    __write_sb_cg_ensK__<T><<<gb, tb, 0, s>>>(dptr_mesh, dptr_vec, s_buff, K,
++                                              member_stride, sendBSz);
++
++#ifdef MPIX_CUDA_AWARE_SUPPORT
++    T* const sendB      = s_buff;
++    MPI_Comm commActive = pMesh->getMPICommunicator();
++    if (recvBSz) {
++        T* recvB = (T*)ctx_device.getRecvBuffer();
++        for (unsigned int recv_p = 0; recv_p < recv_plist.size(); recv_p++) {
++            const unsigned int proc_id = recv_plist[recv_p];
++            par::Mpi_Irecv(recvB + K * dof * re_f[proc_id],
++                           K * dof * re_c[proc_id], proc_id, m_ctag, commActive,
++                           &ctx_host.m_recv_req[recv_p]);
++        }
++    }
++    GPUDevice::stream_synchronize(s);
++    if (sendBSz) {
++        for (unsigned int send_p = 0; send_p < send_plist.size(); send_p++) {
++            const unsigned int proc_id = send_plist[send_p];
++            par::Mpi_Isend(sendB + K * dof * se_f[proc_id],
++                           K * dof * se_c[proc_id], proc_id, m_ctag, commActive,
++                           &ctx_host.m_send_req[send_p]);
++        }
++    }
++#else
++    T* const sendB = (T*)ctx_host.getSendBuffer();
++    GPUDevice::device_to_host_async<DEVICE_REAL, cudaStream_t>(
++        sendB, s_buff, K * dof * sendBSz, s);
++    MPI_Comm commActive = pMesh->getMPICommunicator();
++    if (recvBSz) {
++        T* recvB = (T*)ctx_host.getRecvBuffer();
++        for (unsigned int recv_p = 0; recv_p < recv_plist.size(); recv_p++) {
++            const unsigned int proc_id = recv_plist[recv_p];
++            par::Mpi_Irecv(recvB + K * dof * re_f[proc_id],
++                           K * dof * re_c[proc_id], proc_id, m_ctag, commActive,
++                           &ctx_host.m_recv_req[recv_p]);
++        }
++    }
++    GPUDevice::stream_synchronize(s);
++    if (sendBSz) {
++        for (unsigned int send_p = 0; send_p < send_plist.size(); send_p++) {
++            const unsigned int proc_id = send_plist[send_p];
++            par::Mpi_Isend(sendB + K * dof * se_f[proc_id],
++                           K * dof * se_c[proc_id], proc_id, m_ctag, commActive,
++                           &ctx_host.m_send_req[send_p]);
++        }
++    }
++#endif
++    m_ctag++;
++}
++
++template <typename T, typename stream>
++void MeshGPU::read_from_ghost_cg_ensK_end(
++    ot::AsyncExchangeContex& ctx_host, ot::AsyncExchangeContex& ctx_device,
++    const ot::Mesh* const pMesh, const MeshGPU* const dptr_mesh, T* dptr_vec,
++    unsigned int dof, unsigned int K, unsigned int member_stride, stream s) {
++    if (K < 1) K = 1;
++    if (K == 1) {
++        read_from_ghost_cg_end<T, stream>(ctx_host, ctx_device, pMesh, dptr_mesh,
++                                          dptr_vec, dof, s);
++        return;
++    }
++    if (pMesh->getMPICommSizeGlobal() == 1 || (!pMesh->isActive())) return;
++
++    const std::vector<unsigned int>& se_c = pMesh->getNodalSendCounts();
++    const std::vector<unsigned int>& se_f = pMesh->getNodalSendOffsets();
++    const std::vector<unsigned int>& re_c = pMesh->getNodalRecvCounts();
++    const std::vector<unsigned int>& re_f = pMesh->getNodalRecvOffsets();
++    const std::vector<unsigned int>& send_plist = pMesh->getSendProcList();
++    const std::vector<unsigned int>& recv_plist = pMesh->getRecvProcList();
++    const int active_p         = pMesh->getMPICommSize();
++    const unsigned int sendBSz = (se_f[active_p - 1] + se_c[active_p - 1]);
++    const unsigned int recvBSz = (re_f[active_p - 1] + re_c[active_p - 1]);
++    (void)sendBSz;
++
++    if (recvBSz) {
++#ifdef MPIX_CUDA_AWARE_SUPPORT
++        T* r_buff = (T*)ctx_device.getRecvBuffer();
++        MPI_Waitall(send_plist.size(), ctx_host.m_send_req.data(),
++                    MPI_STATUSES_IGNORE);
++        MPI_Waitall(recv_plist.size(), ctx_host.m_recv_req.data(),
++                    MPI_STATUSES_IGNORE);
++        dim3 gb = dim3(m_max_recv_cg / GPU_MAX_THREADS_PER_BLOCK + 1,
++                       pMesh->getMPICommSize(), dof);
++        dim3 tb = dim3(GPU_MAX_THREADS_PER_BLOCK, 1, 1);
++        __read_rb_cg_ensK__<T><<<gb, tb, 0, s>>>(dptr_mesh, r_buff, dptr_vec, K,
++                                                 member_stride, recvBSz);
++        GPUDevice::stream_synchronize(s);
++#else
++        T* recvB  = (T*)ctx_host.getRecvBuffer();
++        T* r_buff = (T*)ctx_device.getRecvBuffer();
++        MPI_Waitall(send_plist.size(), ctx_host.m_send_req.data(),
++                    MPI_STATUSES_IGNORE);
++        MPI_Waitall(recv_plist.size(), ctx_host.m_recv_req.data(),
++                    MPI_STATUSES_IGNORE);
++        GPUDevice::host_to_device_async(recvB, r_buff, K * recvBSz * dof, s);
++        dim3 gb = dim3(m_max_recv_cg / GPU_MAX_THREADS_PER_BLOCK + 1,
++                       pMesh->getMPICommSize(), dof);
++        dim3 tb = dim3(GPU_MAX_THREADS_PER_BLOCK, 1, 1);
++        __read_rb_cg_ensK__<T><<<gb, tb, 0, s>>>(dptr_mesh, r_buff, dptr_vec, K,
++                                                 member_stride, recvBSz);
++        GPUDevice::stream_synchronize(s);
++#endif
++    }
++}
++
+ };  // namespace device
+diff --git a/GPU/src/mesh_gpu.cu b/GPU/src/mesh_gpu.cu
+index b3a068f..c3a43bf 100644
+--- a/GPU/src/mesh_gpu.cu
++++ b/GPU/src/mesh_gpu.cu
+@@ -275,6 +275,66 @@ MeshGPU* MeshGPU::alloc_mesh_on_device(const ot::Mesh* pMesh) {
+     GPUDevice::host_to_device_async<HangingInfo, cudaStream_t>(
+         hanging_info, this->m_hinfo, pNodes.size());
+ 
++    // Tier-2 unzip: active (nmap>0) element IDs + hang/nh subsets.
++    {
++        std::vector<DEVICE_UINT> active_ids;
++        std::vector<DEVICE_UINT> hang_ids;
++        std::vector<DEVICE_UINT> nh_ids;
++        active_ids.reserve(pNodes.size());
++        hang_ids.reserve(pNodes.size() / 4);
++        nh_ids.reserve(pNodes.size());
++        unsigned int skipped = 0;
++        for (unsigned int ele = 0; ele < pNodes.size(); ele++) {
++            const unsigned int nmap =
++                (ele < m2b_c.size()) ? m2b_c[ele] : 0u;
++            if (nmap == 0) {
++                skipped++;
++                continue;
++            }
++            active_ids.push_back(ele);
++            if (hanging_info[ele].hflag != 0)
++                hang_ids.push_back(ele);
++            else
++                nh_ids.push_back(ele);
++        }
++        this->m_num_ele_active = static_cast<DEVICE_UINT>(active_ids.size());
++        this->m_num_ele_hang   = static_cast<DEVICE_UINT>(hang_ids.size());
++        this->m_num_ele_nh     = static_cast<DEVICE_UINT>(nh_ids.size());
++        this->m_ele_ids_active =
++            GPUDevice::device_malloc<DEVICE_UINT>(active_ids.size() > 0
++                                                      ? active_ids.size()
++                                                      : 1);
++        this->m_ele_ids_hang =
++            GPUDevice::device_malloc<DEVICE_UINT>(hang_ids.size() > 0
++                                                      ? hang_ids.size()
++                                                      : 1);
++        this->m_ele_ids_nh =
++            GPUDevice::device_malloc<DEVICE_UINT>(nh_ids.size() > 0
++                                                      ? nh_ids.size()
++                                                      : 1);
++        if (!active_ids.empty())
++            GPUDevice::host_to_device_async<DEVICE_UINT, cudaStream_t>(
++                active_ids.data(), this->m_ele_ids_active, active_ids.size());
++        if (!hang_ids.empty())
++            GPUDevice::host_to_device_async<DEVICE_UINT, cudaStream_t>(
++                hang_ids.data(), this->m_ele_ids_hang, hang_ids.size());
++        if (!nh_ids.empty())
++            GPUDevice::host_to_device_async<DEVICE_UINT, cudaStream_t>(
++                nh_ids.data(), this->m_ele_ids_nh, nh_ids.size());
++        GPUDevice::host_to_device(this, dptr_mesh, 1);
++        if (pMesh->getMPIRank() == 0) {
++            const double hang_frac =
++                active_ids.empty()
++                    ? 0.0
++                    : (100.0 * static_cast<double>(hang_ids.size()) /
++                       static_cast<double>(active_ids.size()));
++            printf("[unzip-split] elements=%zu active=%zu skipped0=%u "
++                   "hang=%zu (%.1f%% of active) nh=%zu\n",
++                   pNodes.size(), active_ids.size(), skipped, hang_ids.size(),
++                   hang_frac, nh_ids.size());
++        }
++    }
++
+     const Point pt_min = pMesh->getDomainMinPt();
+     const Point pt_max = pMesh->getDomainMaxPt();
+ 
+@@ -352,10 +412,22 @@ void MeshGPU::dealloc_mesh_on_device(MeshGPU* dptr_mesh) {
+     GPUDevice::device_free<BlockGPU3D>(this->m_blk_list);
+     GPUDevice::device_free<TNode3d>(this->m_all_elements);
+     GPUDevice::device_free<HangingInfo>(this->m_hinfo);
++    if (this->m_ele_ids_active != nullptr)
++        GPUDevice::device_free<DEVICE_UINT>(this->m_ele_ids_active);
++    if (this->m_ele_ids_hang != nullptr)
++        GPUDevice::device_free<DEVICE_UINT>(this->m_ele_ids_hang);
++    if (this->m_ele_ids_nh != nullptr)
++        GPUDevice::device_free<DEVICE_UINT>(this->m_ele_ids_nh);
+ 
+     this->m_e2b_unzip_map        = nullptr;
+     this->m_e2b_unzip_map_count  = nullptr;
+     this->m_e2b_unzip_map_offset = nullptr;
++    this->m_ele_ids_active       = nullptr;
++    this->m_ele_ids_hang         = nullptr;
++    this->m_ele_ids_nh           = nullptr;
++    this->m_num_ele_active       = 0;
++    this->m_num_ele_hang         = 0;
++    this->m_num_ele_nh           = 0;
+ 
+     this->m_elem_send_sm         = nullptr;
+     this->m_elem_recv_sm         = nullptr;
+diff --git a/ODE/include/ctx.h b/ODE/include/ctx.h
+index ac7d0c2..a40a7a9 100644
+--- a/ODE/include/ctx.h
++++ b/ODE/include/ctx.h
+@@ -10,6 +10,7 @@
+  *
+  */
+ #pragma once
++#include <cstdlib>
+ #include <functional>
+ #include <iostream>
+ #include <vector>
+@@ -584,6 +585,111 @@ void Ctx<DerivedCtx, T, I>::unzip(ot::DVector<T, I>& in, ot::DVector<T, I>& out,
+         device::MeshGPU* dptr_mesh = this->get_meshgpu_device_ptr();
+         device::MeshGPU* mesh_gpu  = this->get_meshgpu_host_handle();
+ 
++        // B3 one-shot: serial-K ghost rounds vs packed ensK exchange.
++        // Reuses the same zip buffer K times (bandwidth / msg-size test).
++        // Requires ctx buffers sized for K× payload — allocates temps.
++        {
++            static int b3_pack_done = 0;
++            const char* b3env       = std::getenv("DENDRO_B3_PACK_BENCH");
++            const unsigned int b3K =
++                (b3env && !b3_pack_done)
++                    ? (unsigned)((atoi(b3env) > 1) ? atoi(b3env) : 1)
++                    : 0;
++            if (b3K > 1 && m_uiMesh->getMPICommSizeGlobal() > 1 &&
++                m_uiMesh->isActive()) {
++                b3_pack_done                          = 1;
++                const unsigned int active_p           = m_uiMesh->getMPICommSize();
++                const std::vector<unsigned int>& se_c = m_uiMesh->getNodalSendCounts();
++                const std::vector<unsigned int>& se_f = m_uiMesh->getNodalSendOffsets();
++                const std::vector<unsigned int>& re_c = m_uiMesh->getNodalRecvCounts();
++                const std::vector<unsigned int>& re_f = m_uiMesh->getNodalRecvOffsets();
++                const unsigned int sendBSz =
++                    (se_f[active_p - 1] + se_c[active_p - 1]);
++                const unsigned int recvBSz =
++                    (re_f[active_p - 1] + re_c[active_p - 1]);
++                const unsigned int batch_sz = dof;  // full var set, one ctx
++                ot::AsyncExchangeContex ctx_h, ctx_d;
++                T* d_send = nullptr;
++                T* d_recv = nullptr;
++                if (sendBSz)
++                    d_send = GPUDevice::device_malloc<T>(b3K * batch_sz * sendBSz);
++                if (recvBSz)
++                    d_recv = GPUDevice::device_malloc<T>(b3K * batch_sz * recvBSz);
++                ctx_d.getSendBuffer(d_send);
++                ctx_d.getRecvBuffer(d_recv);
++                ctx_h.m_send_req.resize(active_p, MPI_Request());
++                ctx_h.m_recv_req.resize(active_p, MPI_Request());
++#ifndef MPIX_CUDA_AWARE_SUPPORT
++                T* h_send = nullptr;
++                T* h_recv = nullptr;
++                if (sendBSz) {
++                    h_send = GPUDevice::host_malloc<T>(b3K * batch_sz * sendBSz);
++                    ctx_h.getSendBuffer(h_send);
++                }
++                if (recvBSz) {
++                    h_recv = GPUDevice::host_malloc<T>(b3K * batch_sz * recvBSz);
++                    ctx_h.getRecvBuffer(h_recv);
++                }
++#endif
++                // Warmup
++                mesh_gpu->read_from_ghost_cg_begin<DEVICE_REAL, cudaStream_t>(
++                    ctx_h, ctx_d, m_uiMesh, dptr_mesh, in_ptr, batch_sz, 0);
++                mesh_gpu->read_from_ghost_cg_end<DEVICE_REAL, cudaStream_t>(
++                    ctx_h, ctx_d, m_uiMesh, dptr_mesh, in_ptr, batch_sz, 0);
++                GPUDevice::device_synchronize();
++                MPI_Barrier(m_uiMesh->getMPICommunicator());
++
++                const int nrep = 20;
++                double t_serial = 0.0, t_pack = 0.0;
++                for (int r = 0; r < nrep; ++r) {
++                    MPI_Barrier(m_uiMesh->getMPICommunicator());
++                    double t0 = MPI_Wtime();
++                    for (unsigned int k = 0; k < b3K; ++k) {
++                        mesh_gpu->read_from_ghost_cg_begin<DEVICE_REAL, cudaStream_t>(
++                            ctx_h, ctx_d, m_uiMesh, dptr_mesh, in_ptr, batch_sz,
++                            0);
++                        mesh_gpu->read_from_ghost_cg_end<DEVICE_REAL, cudaStream_t>(
++                            ctx_h, ctx_d, m_uiMesh, dptr_mesh, in_ptr, batch_sz,
++                            0);
++                    }
++                    GPUDevice::device_synchronize();
++                    MPI_Barrier(m_uiMesh->getMPICommunicator());
++                    t_serial += MPI_Wtime() - t0;
++
++                    MPI_Barrier(m_uiMesh->getMPICommunicator());
++                    t0 = MPI_Wtime();
++                    // member_stride=0 → all K slots read the same zip (msg-size test)
++                    mesh_gpu->read_from_ghost_cg_ensK_begin<DEVICE_REAL, cudaStream_t>(
++                        ctx_h, ctx_d, m_uiMesh, dptr_mesh, in_ptr, batch_sz, b3K,
++                        /*member_stride=*/0, 0);
++                    mesh_gpu->read_from_ghost_cg_ensK_end<DEVICE_REAL, cudaStream_t>(
++                        ctx_h, ctx_d, m_uiMesh, dptr_mesh, in_ptr, batch_sz, b3K,
++                        /*member_stride=*/0, 0);
++                    GPUDevice::device_synchronize();
++                    MPI_Barrier(m_uiMesh->getMPICommunicator());
++                    t_pack += MPI_Wtime() - t0;
++                }
++                double t_s = t_serial / nrep, t_p = t_pack / nrep;
++                double t_s_max = t_s, t_p_max = t_p;
++                MPI_Allreduce(MPI_IN_PLACE, &t_s_max, 1, MPI_DOUBLE, MPI_MAX,
++                              m_uiMesh->getMPICommunicator());
++                MPI_Allreduce(MPI_IN_PLACE, &t_p_max, 1, MPI_DOUBLE, MPI_MAX,
++                              m_uiMesh->getMPICommunicator());
++                if (m_uiMesh->getMPIRank() == 0) {
++                    printf("b3_pack_bench\tK=%u\tnpes=%d\tserial=%.6f\tpacked=%.6f\tspeedup=%.3f\n",
++                           b3K, m_uiMesh->getMPICommSizeGlobal(), t_s_max, t_p_max,
++                           t_s_max / std::max(t_p_max, 1e-12));
++                    fflush(stdout);
++                }
++                if (d_send) GPUDevice::device_free(d_send);
++                if (d_recv) GPUDevice::device_free(d_recv);
++#ifndef MPIX_CUDA_AWARE_SUPPORT
++                if (h_send) GPUDevice::host_free(h_send);
++                if (h_recv) GPUDevice::host_free(h_recv);
++#endif
++            }
++        }
++
+         for (unsigned int i = 0; i < async_k; i++) {
+             const unsigned int v_begin  = ((i * dof) / async_k);
+             const unsigned int v_end    = (((i + 1) * dof) / async_k);
+@@ -607,11 +713,23 @@ void Ctx<DerivedCtx, T, I>::unzip(ot::DVector<T, I>& in, ot::DVector<T, I>& out,
+             mesh_gpu->unzip_cg<DEVICE_REAL, cudaStream_t>(
+                 m_uiMesh, dptr_mesh, in_ptr + v_begin * sz_per_dof_zip,
+                 out_ptr + v_begin * sz_per_dof_uzip, batch_sz, 0);
+-            GPUDevice::device_synchronize();
++            // Default: defer device_synchronize until after all async_k
++            // batches so the GPU is not idle during the next MPI ghost wait.
++            // DENDRO_UNZIP_BATCH_SYNC=1 restores the old per-batch sync.
++            {
++                const char* bsync = std::getenv("DENDRO_UNZIP_BATCH_SYNC");
++                if (bsync && bsync[0] == '1' && bsync[1] == '\0')
++                    GPUDevice::device_synchronize();
++            }
+ #ifdef __PROFILE_CTX__
+             m_uiCtxpt[CTXPROFILE::UNZIP].stop();
+ #endif
+         }
++        {
++            const char* bsync = std::getenv("DENDRO_UNZIP_BATCH_SYNC");
++            if (!(bsync && bsync[0] == '1' && bsync[1] == '\0'))
++                GPUDevice::device_synchronize();
++        }
+ #endif
+     }
+ 
+diff --git a/include/mesh_gpu.h b/include/mesh_gpu.h
+index 8e711bd..3bd3a27 100644
+--- a/include/mesh_gpu.h
++++ b/include/mesh_gpu.h
+@@ -131,6 +131,14 @@ class MeshGPU {
+     DEVICE_UINT* m_cg_recv_f              = nullptr;
+     HangingInfo* m_hinfo                  = nullptr;
+ 
++    /**@brief: Tier-2 unzip — active (nmap>0) element IDs; optional hang/nh */
++    DEVICE_UINT* m_ele_ids_active         = nullptr;
++    DEVICE_UINT* m_ele_ids_hang           = nullptr;
++    DEVICE_UINT* m_ele_ids_nh             = nullptr;
++    DEVICE_UINT m_num_ele_active          = 0;
++    DEVICE_UINT m_num_ele_hang            = 0;
++    DEVICE_UINT m_num_ele_nh              = 0;
++
+     DEVICE_UINT m_max_send_ele            = 1;
+     DEVICE_UINT m_max_recv_ele            = 1;
+ 
+@@ -226,6 +234,27 @@ class MeshGPU {
+                                 const ot::Mesh* const pMesh,
+                                 const MeshGPU* const dptr_mesh, T* dptr_vec,
+                                 unsigned int dof = 1, stream s = (stream)0);
++
++    // B3: pack K ensemble members into one CG ghost exchange.
++    // dptr_vec layout: member stride = member_stride (e.g. BSSN_NUM_VARS * cg_sz).
++    // ctx send/recv buffers must be sized K * dof * {send,recv}BSz.
++    template <typename T, typename stream>
++    void read_from_ghost_cg_ensK_begin(ot::AsyncExchangeContex& ctx_host,
++                                       ot::AsyncExchangeContex& ctx_device,
++                                       const ot::Mesh* const pMesh,
++                                       const MeshGPU* const dptr_mesh,
++                                       T* dptr_vec, unsigned int dof,
++                                       unsigned int K, unsigned int member_stride,
++                                       stream s = (stream)0);
++
++    template <typename T, typename stream>
++    void read_from_ghost_cg_ensK_end(ot::AsyncExchangeContex& ctx_host,
++                                     ot::AsyncExchangeContex& ctx_device,
++                                     const ot::Mesh* const pMesh,
++                                     const MeshGPU* const dptr_mesh, T* dptr_vec,
++                                     unsigned int dof, unsigned int K,
++                                     unsigned int member_stride,
++                                     stream s = (stream)0);
+ };
+ 
+ }  // end of namespace device.
