@@ -1269,6 +1269,9 @@ int BSSNCtxGPU::rhs(DVec* in, DVec* out, unsigned int sz, DendroScalar time) {
     // DENDRO_RHS_PT_GMEM=1 → point FD from global (0 smem, higher occ).
     // DENDRO_RHS_PT_DB=1 → PT + cp.async double-buffer.
     // DENDRO_RHS_PT_ASYNC=1 → PT + cp.async load (no DB overlap).
+    // DENDRO_RHS_PT_ASYNC_DEFER=1 → PT_ASYNC + deferred DD seconds (B1).
+    // DENDRO_RHS_PT_ASYNC_CSE=1 → PT_ASYNC + christoffel CSE (B1 follow-on).
+// DENDRO_RHS_PT_ASYNC_WHILEHOT=1 → early RIJ + scoped gt/chi seconds.
     // DENDRO_RHS_PT=1 → point-wise fused FD.
     // Hybrid: interior blocks use PT*; domain-boundary (bflag!=0) use stock
     // one-sided FD so C_HAM matches (PT alone diverges on faces).
@@ -1286,6 +1289,24 @@ int BSSNCtxGPU::rhs(DVec* in, DVec* out, unsigned int sz, DendroScalar time) {
     } else if (std::getenv("DENDRO_RHS_PT_DB")) {
         device::bssnrhs3_pt_db<3, pen_sz, pen_sz, DEVICE_RHS_BATCHED_GRAIN_SZ,
                                DEVICE_RHS_NSTREAMS>(
+            m_dptr_uz_o.get_vec_ptr(), m_dptr_uz_i.get_vec_ptr(),
+            m_mesh_cpu.m_blk_list, nblocks, unzip_sz, KO_DISS_SIGMA);
+    } else if (std::getenv("DENDRO_RHS_PT_ASYNC_DEFER")) {
+        device::bssnrhs3_pt_async_defer<3, pen_sz, pen_sz,
+                                        DEVICE_RHS_BATCHED_GRAIN_SZ,
+                                        DEVICE_RHS_NSTREAMS>(
+            m_dptr_uz_o.get_vec_ptr(), m_dptr_uz_i.get_vec_ptr(),
+            m_mesh_cpu.m_blk_list, nblocks, unzip_sz, KO_DISS_SIGMA);
+    } else if (std::getenv("DENDRO_RHS_PT_ASYNC_CSE")) {
+        device::bssnrhs3_pt_async_cse<3, pen_sz, pen_sz,
+                                      DEVICE_RHS_BATCHED_GRAIN_SZ,
+                                      DEVICE_RHS_NSTREAMS>(
+            m_dptr_uz_o.get_vec_ptr(), m_dptr_uz_i.get_vec_ptr(),
+            m_mesh_cpu.m_blk_list, nblocks, unzip_sz, KO_DISS_SIGMA);
+    } else if (std::getenv("DENDRO_RHS_PT_ASYNC_WHILEHOT")) {
+        device::bssnrhs3_pt_async_whilehot<3, pen_sz, pen_sz,
+                                           DEVICE_RHS_BATCHED_GRAIN_SZ,
+                                           DEVICE_RHS_NSTREAMS>(
             m_dptr_uz_o.get_vec_ptr(), m_dptr_uz_i.get_vec_ptr(),
             m_mesh_cpu.m_blk_list, nblocks, unzip_sz, KO_DISS_SIGMA);
     } else if (std::getenv("DENDRO_RHS_PT_ASYNC")) {

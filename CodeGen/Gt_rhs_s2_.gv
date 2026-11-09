@@ -1,0 +1,35 @@
+digraph{
+
+# Graph style
+"ordering"="out"
+"rankdir"="TD"
+
+#########
+# Nodes #
+#########
+
+"Add(Mul(Symbol('CalGt0[pp]'), Symbol('grad_0_beta2[pp]')), Mul(Symbol('CalGt1[pp]'), Symbol('grad_1_beta2[pp]')), Mul(Symbol('CalGt2[pp]'), Symbol('grad_2_beta2[pp]')))_()" ["color"="black", "label"="Add", "shape"="ellipse"];
+"Mul(Symbol('CalGt0[pp]'), Symbol('grad_0_beta2[pp]'))_(0,)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Symbol('CalGt0[pp]')_(0, 0)" ["color"="black", "label"="CalGt0[pp]", "shape"="ellipse"];
+"Symbol('grad_0_beta2[pp]')_(0, 1)" ["color"="black", "label"="grad_0_beta2[pp]", "shape"="ellipse"];
+"Mul(Symbol('CalGt1[pp]'), Symbol('grad_1_beta2[pp]'))_(1,)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Symbol('CalGt1[pp]')_(1, 0)" ["color"="black", "label"="CalGt1[pp]", "shape"="ellipse"];
+"Symbol('grad_1_beta2[pp]')_(1, 1)" ["color"="black", "label"="grad_1_beta2[pp]", "shape"="ellipse"];
+"Mul(Symbol('CalGt2[pp]'), Symbol('grad_2_beta2[pp]'))_(2,)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Symbol('CalGt2[pp]')_(2, 0)" ["color"="black", "label"="CalGt2[pp]", "shape"="ellipse"];
+"Symbol('grad_2_beta2[pp]')_(2, 1)" ["color"="black", "label"="grad_2_beta2[pp]", "shape"="ellipse"];
+
+#########
+# Edges #
+#########
+
+"Add(Mul(Symbol('CalGt0[pp]'), Symbol('grad_0_beta2[pp]')), Mul(Symbol('CalGt1[pp]'), Symbol('grad_1_beta2[pp]')), Mul(Symbol('CalGt2[pp]'), Symbol('grad_2_beta2[pp]')))_()" -> "Mul(Symbol('CalGt0[pp]'), Symbol('grad_0_beta2[pp]'))_(0,)";
+"Add(Mul(Symbol('CalGt0[pp]'), Symbol('grad_0_beta2[pp]')), Mul(Symbol('CalGt1[pp]'), Symbol('grad_1_beta2[pp]')), Mul(Symbol('CalGt2[pp]'), Symbol('grad_2_beta2[pp]')))_()" -> "Mul(Symbol('CalGt1[pp]'), Symbol('grad_1_beta2[pp]'))_(1,)";
+"Add(Mul(Symbol('CalGt0[pp]'), Symbol('grad_0_beta2[pp]')), Mul(Symbol('CalGt1[pp]'), Symbol('grad_1_beta2[pp]')), Mul(Symbol('CalGt2[pp]'), Symbol('grad_2_beta2[pp]')))_()" -> "Mul(Symbol('CalGt2[pp]'), Symbol('grad_2_beta2[pp]'))_(2,)";
+"Mul(Symbol('CalGt0[pp]'), Symbol('grad_0_beta2[pp]'))_(0,)" -> "Symbol('CalGt0[pp]')_(0, 0)";
+"Mul(Symbol('CalGt0[pp]'), Symbol('grad_0_beta2[pp]'))_(0,)" -> "Symbol('grad_0_beta2[pp]')_(0, 1)";
+"Mul(Symbol('CalGt1[pp]'), Symbol('grad_1_beta2[pp]'))_(1,)" -> "Symbol('CalGt1[pp]')_(1, 0)";
+"Mul(Symbol('CalGt1[pp]'), Symbol('grad_1_beta2[pp]'))_(1,)" -> "Symbol('grad_1_beta2[pp]')_(1, 1)";
+"Mul(Symbol('CalGt2[pp]'), Symbol('grad_2_beta2[pp]'))_(2,)" -> "Symbol('CalGt2[pp]')_(2, 0)";
+"Mul(Symbol('CalGt2[pp]'), Symbol('grad_2_beta2[pp]'))_(2,)" -> "Symbol('grad_2_beta2[pp]')_(2, 1)";
+}

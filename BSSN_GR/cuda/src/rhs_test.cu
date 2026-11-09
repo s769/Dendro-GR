@@ -327,6 +327,77 @@ int main(int argc, char** argv) {
         }
     }
 
+    // B1 CSE christoffel: time + bit-id vs PT_ASYNC reference already in Fu_gpu.
+    if (std::getenv("DENDRO_TIME_PT_ASYNC_CSE")) {
+        double* Fu_ref = new double[blk_vec_sz];
+        std::memcpy(Fu_ref, Fu_gpu, blk_vec_sz * sizeof(double));
+        profiler_t t_cse;
+        device::bssnrhs3_pt_async_cse<3, blk_sz_1d, blk_sz_1d, blk_batch_size,
+                                      nstreams>(dptr_Fu, dptr_u, dptr_blk,
+                                                blk.size(), szp_dof, ko_sigma);
+        GPUDevice::check_last_error();
+        for (unsigned int i = 0; i < nReps; i++) {
+            t_cse.start();
+            device::bssnrhs3_pt_async_cse<3, blk_sz_1d, blk_sz_1d,
+                                          blk_batch_size, nstreams>(
+                dptr_Fu, dptr_u, dptr_blk, blk.size(), szp_dof, ko_sigma);
+            t_cse.stop();
+        }
+        printf("pt_async_cse_gpu_time\t%.4f\n", (double)t_cse.seconds);
+        GPUDevice::device_to_host(Fu_gpu, dptr_Fu, blk_vec_sz);
+        unsigned int mism = 0;
+        double max_abs = 0.0, max_rel = 0.0;
+        for (unsigned int i = 0; i < blk_vec_sz; ++i) {
+            const double a = Fu_ref[i], b = Fu_gpu[i];
+            if (a != b) {
+                ++mism;
+                const double d = fabs(a - b);
+                if (d > max_abs) max_abs = d;
+                const double den = fabs(a) > fabs(b) ? fabs(a) : fabs(b);
+                const double r = (den > 0.0) ? d / den : d;
+                if (r > max_rel) max_rel = r;
+            }
+        }
+        printf("pt_async_cse_bitid_mismatches\t%u\tof\t%u\n", mism, blk_vec_sz);
+        printf("pt_async_cse_max_abs\t%.3e\tmax_rel\t%.3e\n", max_abs, max_rel);
+        delete[] Fu_ref;
+    }
+
+    if (std::getenv("DENDRO_TIME_PT_ASYNC_WHILEHOT")) {
+        double* Fu_ref = new double[blk_vec_sz];
+        std::memcpy(Fu_ref, Fu_gpu, blk_vec_sz * sizeof(double));
+        profiler_t t_wh;
+        device::bssnrhs3_pt_async_whilehot<3, blk_sz_1d, blk_sz_1d, blk_batch_size,
+                                           nstreams>(dptr_Fu, dptr_u, dptr_blk,
+                                                     blk.size(), szp_dof, ko_sigma);
+        GPUDevice::check_last_error();
+        for (unsigned int i = 0; i < nReps; i++) {
+            t_wh.start();
+            device::bssnrhs3_pt_async_whilehot<3, blk_sz_1d, blk_sz_1d,
+                                               blk_batch_size, nstreams>(
+                dptr_Fu, dptr_u, dptr_blk, blk.size(), szp_dof, ko_sigma);
+            t_wh.stop();
+        }
+        printf("pt_async_whilehot_gpu_time\t%.4f\n", (double)t_wh.seconds);
+        GPUDevice::device_to_host(Fu_gpu, dptr_Fu, blk_vec_sz);
+        unsigned int mism = 0;
+        double max_abs = 0.0, max_rel = 0.0;
+        for (unsigned int i = 0; i < blk_vec_sz; ++i) {
+            const double a = Fu_ref[i], b = Fu_gpu[i];
+            if (a != b) {
+                ++mism;
+                const double d = fabs(a - b);
+                if (d > max_abs) max_abs = d;
+                const double den = fabs(a) > fabs(b) ? fabs(a) : fabs(b);
+                const double r = (den > 0.0) ? d / den : d;
+                if (r > max_rel) max_rel = r;
+            }
+        }
+        printf("pt_async_whilehot_bitid_mismatches\t%u\tof\t%u\n", mism, blk_vec_sz);
+        printf("pt_async_whilehot_max_abs\t%.3e\tmax_rel\t%.3e\n", max_abs, max_rel);
+        delete[] Fu_ref;
+    }
+
     if (std::getenv("DENDRO_TIME_PT_GMEM")) {
         profiler_t t_gmem;
         device::bssnrhs3_pt_gmem<3, blk_sz_1d, blk_sz_1d, blk_batch_size,

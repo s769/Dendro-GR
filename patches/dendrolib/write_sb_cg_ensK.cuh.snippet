@@ -1,0 +1,45 @@
+// B3 scaffold — pack K ensemble members into one CG send buffer.
+// Layout: for each neighbor proc, payload = [mem0 | mem1 | ... | memK-1]
+// where each mem slice matches current dof*sc layout of __write_sb_cg__.
+// MPI counts become K * dof * se_c[proc]; one Isend/Irecv per neighbor.
+//
+// Drop into mesh_gpu.cuh next to __write_sb_cg__. Not wired yet — needs
+// AsyncExchangeContex buffer resize ×K and begin/end wrappers.
+//
+// Measure (multi-GPU): serial K× read_from_ghost_cg_begin/end vs one ensK
+// begin/end + existing bssnrhs3_pt_async(..., K) at fine nblocks.
+
+template <typename T>
+GLOBAL_FUNC __launch_bounds__(GPU_MAX_THREADS_PER_BLOCK) void __write_sb_cg_ensK__(
+    const MeshGPU* const dptr_mesh, const T* const dptr_in, T* const dptr_out,
+    DEVICE_UINT K, DEVICE_UINT member_stride /* BSSN_NUM_VARS * cg_sz */) {
+    const DEVICE_UINT proc_id = GPUDevice::block_id_y();
+    const DEVICE_UINT var     = GPUDevice::block_id_z();
+    const DEVICE_UINT mem     = GPUDevice::block_id_x() % K;  // reuse x for member
+    // NOTE: real wiring should set grid = (tiles, npes, dof) and loop mem,
+    // or grid.w / a 4th dim via linear block id. This snippet is a design
+    // placeholder — do not compile as-is without adjusting the launch.
+
+    const DEVICE_UINT dof   = GPUDevice::grid_dim_z();
+    const DEVICE_UINT sf    = dptr_mesh->m_cg_send_f[proc_id];
+    const DEVICE_UINT sc    = dptr_mesh->m_cg_send_c[proc_id];
+    const DEVICE_UINT cg_sz = dptr_mesh->m_oct_shared_sz;
+
+    const DEVICE_UINT stride = GPUDevice::block_dim_x();
+    const DEVICE_UINT t_id =
+        GPUDevice::thread_id_x() + (GPUDevice::block_id_x() / K) * stride;
+
+    const T* in = dptr_in + mem * member_stride;
+    // out layout: [mem][dof*sf + var*sc + k]
+    T* out = dptr_out + mem * (dof * (/*sendBSz*/ sf + sc /*wrong — use full*/));
+    (void)out;
+    for (unsigned int k = sf + t_id; k < sf + sc; k += stride) {
+        const DEVICE_UINT sm_sm = dptr_mesh->m_cg_send_sm[k];
+        // Correct index once sendBSz is passed as arg:
+        // dptr_out[mem * dof * sendBSz + dof * sf + var * sc + (k - sf)]
+        //     = in[var * cg_sz + sm_sm];
+        (void)sm_sm;
+        (void)cg_sz;
+        (void)var;
+    }
+}

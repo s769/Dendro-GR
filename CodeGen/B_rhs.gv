@@ -1,0 +1,105 @@
+digraph{
+
+# Graph style
+"ordering"="out"
+"rankdir"="TD"
+
+#########
+# Nodes #
+#########
+
+"Add(Symbol('Gt_rhs_s1_2[pp]'), Symbol('Gt_rhs_s4_2[pp]'), Symbol('Gt_rhs_s6_2[pp]'), Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]')), Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]')), Mul(Symbol('lambda[2]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]')))), Mul(Integer(-1), Symbol('B2[pp]'), Symbol('eta')), Mul(Integer(-1), Symbol('lambda[3]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]')))))_()" ["color"="black", "label"="Add", "shape"="ellipse"];
+"Symbol('Gt_rhs_s1_2[pp]')_(0,)" ["color"="black", "label"="Gt_rhs_s1_2[pp]", "shape"="ellipse"];
+"Symbol('Gt_rhs_s4_2[pp]')_(1,)" ["color"="black", "label"="Gt_rhs_s4_2[pp]", "shape"="ellipse"];
+"Symbol('Gt_rhs_s6_2[pp]')_(2,)" ["color"="black", "label"="Gt_rhs_s6_2[pp]", "shape"="ellipse"];
+"Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]'))_(3,)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Integer(-1)_(3, 0)" ["color"="black", "label"="-1", "shape"="ellipse"];
+"Symbol('Gt_rhs_s2_2[pp]')_(3, 1)" ["color"="black", "label"="Gt_rhs_s2_2[pp]", "shape"="ellipse"];
+"Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]'))_(4,)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Integer(-1)_(4, 0)" ["color"="black", "label"="-1", "shape"="ellipse"];
+"Symbol('Gt_rhs_s5_2[pp]')_(4, 1)" ["color"="black", "label"="Gt_rhs_s5_2[pp]", "shape"="ellipse"];
+"Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]'))_(5,)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Integer(-1)_(5, 0)" ["color"="black", "label"="-1", "shape"="ellipse"];
+"Symbol('Gt_rhs_s7_2[pp]')_(5, 1)" ["color"="black", "label"="Gt_rhs_s7_2[pp]", "shape"="ellipse"];
+"Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]'))_(6,)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Rational(2, 3)_(6, 0)" ["color"="black", "label"="2/3", "shape"="ellipse"];
+"Symbol('Gt_rhs_s3_2[pp]')_(6, 1)" ["color"="black", "label"="Gt_rhs_s3_2[pp]", "shape"="ellipse"];
+"Mul(Symbol('lambda[2]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]'))))_(7,)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Symbol('lambda[2]')_(7, 0)" ["color"="black", "label"="lambda[2]", "shape"="ellipse"];
+"Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]')))_(7, 1)" ["color"="black", "label"="Add", "shape"="ellipse"];
+"Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]'))_(7, 1, 0)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Symbol('beta0[pp]')_(7, 1, 0, 0)" ["color"="black", "label"="beta0[pp]", "shape"="ellipse"];
+"Symbol('grad_0_B2[pp]')_(7, 1, 0, 1)" ["color"="black", "label"="grad_0_B2[pp]", "shape"="ellipse"];
+"Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]'))_(7, 1, 1)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Symbol('beta1[pp]')_(7, 1, 1, 0)" ["color"="black", "label"="beta1[pp]", "shape"="ellipse"];
+"Symbol('grad_1_B2[pp]')_(7, 1, 1, 1)" ["color"="black", "label"="grad_1_B2[pp]", "shape"="ellipse"];
+"Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]'))_(7, 1, 2)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Symbol('beta2[pp]')_(7, 1, 2, 0)" ["color"="black", "label"="beta2[pp]", "shape"="ellipse"];
+"Symbol('grad_2_B2[pp]')_(7, 1, 2, 1)" ["color"="black", "label"="grad_2_B2[pp]", "shape"="ellipse"];
+"Mul(Integer(-1), Symbol('B2[pp]'), Symbol('eta'))_(8,)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Integer(-1)_(8, 0)" ["color"="black", "label"="-1", "shape"="ellipse"];
+"Symbol('B2[pp]')_(8, 1)" ["color"="black", "label"="B2[pp]", "shape"="ellipse"];
+"Symbol('eta')_(8, 2)" ["color"="black", "label"="eta", "shape"="ellipse"];
+"Mul(Integer(-1), Symbol('lambda[3]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]'))))_(9,)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Integer(-1)_(9, 0)" ["color"="black", "label"="-1", "shape"="ellipse"];
+"Symbol('lambda[3]')_(9, 1)" ["color"="black", "label"="lambda[3]", "shape"="ellipse"];
+"Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]')))_(9, 2)" ["color"="black", "label"="Add", "shape"="ellipse"];
+"Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]'))_(9, 2, 0)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Symbol('beta0[pp]')_(9, 2, 0, 0)" ["color"="black", "label"="beta0[pp]", "shape"="ellipse"];
+"Symbol('grad_0_Gt2[pp]')_(9, 2, 0, 1)" ["color"="black", "label"="grad_0_Gt2[pp]", "shape"="ellipse"];
+"Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]'))_(9, 2, 1)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Symbol('beta1[pp]')_(9, 2, 1, 0)" ["color"="black", "label"="beta1[pp]", "shape"="ellipse"];
+"Symbol('grad_1_Gt2[pp]')_(9, 2, 1, 1)" ["color"="black", "label"="grad_1_Gt2[pp]", "shape"="ellipse"];
+"Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]'))_(9, 2, 2)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Symbol('beta2[pp]')_(9, 2, 2, 0)" ["color"="black", "label"="beta2[pp]", "shape"="ellipse"];
+"Symbol('grad_2_Gt2[pp]')_(9, 2, 2, 1)" ["color"="black", "label"="grad_2_Gt2[pp]", "shape"="ellipse"];
+
+#########
+# Edges #
+#########
+
+"Add(Symbol('Gt_rhs_s1_2[pp]'), Symbol('Gt_rhs_s4_2[pp]'), Symbol('Gt_rhs_s6_2[pp]'), Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]')), Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]')), Mul(Symbol('lambda[2]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]')))), Mul(Integer(-1), Symbol('B2[pp]'), Symbol('eta')), Mul(Integer(-1), Symbol('lambda[3]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]')))))_()" -> "Symbol('Gt_rhs_s1_2[pp]')_(0,)";
+"Add(Symbol('Gt_rhs_s1_2[pp]'), Symbol('Gt_rhs_s4_2[pp]'), Symbol('Gt_rhs_s6_2[pp]'), Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]')), Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]')), Mul(Symbol('lambda[2]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]')))), Mul(Integer(-1), Symbol('B2[pp]'), Symbol('eta')), Mul(Integer(-1), Symbol('lambda[3]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]')))))_()" -> "Symbol('Gt_rhs_s4_2[pp]')_(1,)";
+"Add(Symbol('Gt_rhs_s1_2[pp]'), Symbol('Gt_rhs_s4_2[pp]'), Symbol('Gt_rhs_s6_2[pp]'), Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]')), Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]')), Mul(Symbol('lambda[2]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]')))), Mul(Integer(-1), Symbol('B2[pp]'), Symbol('eta')), Mul(Integer(-1), Symbol('lambda[3]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]')))))_()" -> "Symbol('Gt_rhs_s6_2[pp]')_(2,)";
+"Add(Symbol('Gt_rhs_s1_2[pp]'), Symbol('Gt_rhs_s4_2[pp]'), Symbol('Gt_rhs_s6_2[pp]'), Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]')), Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]')), Mul(Symbol('lambda[2]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]')))), Mul(Integer(-1), Symbol('B2[pp]'), Symbol('eta')), Mul(Integer(-1), Symbol('lambda[3]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]')))))_()" -> "Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]'))_(3,)";
+"Add(Symbol('Gt_rhs_s1_2[pp]'), Symbol('Gt_rhs_s4_2[pp]'), Symbol('Gt_rhs_s6_2[pp]'), Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]')), Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]')), Mul(Symbol('lambda[2]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]')))), Mul(Integer(-1), Symbol('B2[pp]'), Symbol('eta')), Mul(Integer(-1), Symbol('lambda[3]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]')))))_()" -> "Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]'))_(4,)";
+"Add(Symbol('Gt_rhs_s1_2[pp]'), Symbol('Gt_rhs_s4_2[pp]'), Symbol('Gt_rhs_s6_2[pp]'), Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]')), Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]')), Mul(Symbol('lambda[2]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]')))), Mul(Integer(-1), Symbol('B2[pp]'), Symbol('eta')), Mul(Integer(-1), Symbol('lambda[3]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]')))))_()" -> "Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]'))_(5,)";
+"Add(Symbol('Gt_rhs_s1_2[pp]'), Symbol('Gt_rhs_s4_2[pp]'), Symbol('Gt_rhs_s6_2[pp]'), Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]')), Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]')), Mul(Symbol('lambda[2]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]')))), Mul(Integer(-1), Symbol('B2[pp]'), Symbol('eta')), Mul(Integer(-1), Symbol('lambda[3]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]')))))_()" -> "Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]'))_(6,)";
+"Add(Symbol('Gt_rhs_s1_2[pp]'), Symbol('Gt_rhs_s4_2[pp]'), Symbol('Gt_rhs_s6_2[pp]'), Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]')), Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]')), Mul(Symbol('lambda[2]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]')))), Mul(Integer(-1), Symbol('B2[pp]'), Symbol('eta')), Mul(Integer(-1), Symbol('lambda[3]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]')))))_()" -> "Mul(Symbol('lambda[2]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]'))))_(7,)";
+"Add(Symbol('Gt_rhs_s1_2[pp]'), Symbol('Gt_rhs_s4_2[pp]'), Symbol('Gt_rhs_s6_2[pp]'), Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]')), Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]')), Mul(Symbol('lambda[2]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]')))), Mul(Integer(-1), Symbol('B2[pp]'), Symbol('eta')), Mul(Integer(-1), Symbol('lambda[3]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]')))))_()" -> "Mul(Integer(-1), Symbol('B2[pp]'), Symbol('eta'))_(8,)";
+"Add(Symbol('Gt_rhs_s1_2[pp]'), Symbol('Gt_rhs_s4_2[pp]'), Symbol('Gt_rhs_s6_2[pp]'), Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]')), Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]')), Mul(Symbol('lambda[2]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]')))), Mul(Integer(-1), Symbol('B2[pp]'), Symbol('eta')), Mul(Integer(-1), Symbol('lambda[3]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]')))))_()" -> "Mul(Integer(-1), Symbol('lambda[3]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]'))))_(9,)";
+"Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]'))_(3,)" -> "Integer(-1)_(3, 0)";
+"Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]'))_(3,)" -> "Symbol('Gt_rhs_s2_2[pp]')_(3, 1)";
+"Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]'))_(4,)" -> "Integer(-1)_(4, 0)";
+"Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]'))_(4,)" -> "Symbol('Gt_rhs_s5_2[pp]')_(4, 1)";
+"Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]'))_(5,)" -> "Integer(-1)_(5, 0)";
+"Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]'))_(5,)" -> "Symbol('Gt_rhs_s7_2[pp]')_(5, 1)";
+"Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]'))_(6,)" -> "Rational(2, 3)_(6, 0)";
+"Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]'))_(6,)" -> "Symbol('Gt_rhs_s3_2[pp]')_(6, 1)";
+"Mul(Symbol('lambda[2]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]'))))_(7,)" -> "Symbol('lambda[2]')_(7, 0)";
+"Mul(Symbol('lambda[2]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]'))))_(7,)" -> "Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]')))_(7, 1)";
+"Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]')))_(7, 1)" -> "Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]'))_(7, 1, 0)";
+"Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]')))_(7, 1)" -> "Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]'))_(7, 1, 1)";
+"Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]')))_(7, 1)" -> "Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]'))_(7, 1, 2)";
+"Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]'))_(7, 1, 0)" -> "Symbol('beta0[pp]')_(7, 1, 0, 0)";
+"Mul(Symbol('beta0[pp]'), Symbol('grad_0_B2[pp]'))_(7, 1, 0)" -> "Symbol('grad_0_B2[pp]')_(7, 1, 0, 1)";
+"Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]'))_(7, 1, 1)" -> "Symbol('beta1[pp]')_(7, 1, 1, 0)";
+"Mul(Symbol('beta1[pp]'), Symbol('grad_1_B2[pp]'))_(7, 1, 1)" -> "Symbol('grad_1_B2[pp]')_(7, 1, 1, 1)";
+"Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]'))_(7, 1, 2)" -> "Symbol('beta2[pp]')_(7, 1, 2, 0)";
+"Mul(Symbol('beta2[pp]'), Symbol('grad_2_B2[pp]'))_(7, 1, 2)" -> "Symbol('grad_2_B2[pp]')_(7, 1, 2, 1)";
+"Mul(Integer(-1), Symbol('B2[pp]'), Symbol('eta'))_(8,)" -> "Integer(-1)_(8, 0)";
+"Mul(Integer(-1), Symbol('B2[pp]'), Symbol('eta'))_(8,)" -> "Symbol('B2[pp]')_(8, 1)";
+"Mul(Integer(-1), Symbol('B2[pp]'), Symbol('eta'))_(8,)" -> "Symbol('eta')_(8, 2)";
+"Mul(Integer(-1), Symbol('lambda[3]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]'))))_(9,)" -> "Integer(-1)_(9, 0)";
+"Mul(Integer(-1), Symbol('lambda[3]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]'))))_(9,)" -> "Symbol('lambda[3]')_(9, 1)";
+"Mul(Integer(-1), Symbol('lambda[3]'), Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]'))))_(9,)" -> "Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]')))_(9, 2)";
+"Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]')))_(9, 2)" -> "Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]'))_(9, 2, 0)";
+"Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]')))_(9, 2)" -> "Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]'))_(9, 2, 1)";
+"Add(Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]')), Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]')), Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]')))_(9, 2)" -> "Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]'))_(9, 2, 2)";
+"Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]'))_(9, 2, 0)" -> "Symbol('beta0[pp]')_(9, 2, 0, 0)";
+"Mul(Symbol('beta0[pp]'), Symbol('grad_0_Gt2[pp]'))_(9, 2, 0)" -> "Symbol('grad_0_Gt2[pp]')_(9, 2, 0, 1)";
+"Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]'))_(9, 2, 1)" -> "Symbol('beta1[pp]')_(9, 2, 1, 0)";
+"Mul(Symbol('beta1[pp]'), Symbol('grad_1_Gt2[pp]'))_(9, 2, 1)" -> "Symbol('grad_1_Gt2[pp]')_(9, 2, 1, 1)";
+"Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]'))_(9, 2, 2)" -> "Symbol('beta2[pp]')_(9, 2, 2, 0)";
+"Mul(Symbol('beta2[pp]'), Symbol('grad_2_Gt2[pp]'))_(9, 2, 2)" -> "Symbol('grad_2_Gt2[pp]')_(9, 2, 2, 1)";
+}

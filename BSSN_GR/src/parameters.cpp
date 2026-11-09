@@ -30,6 +30,7 @@ unsigned int BSSN_IO_OUTPUT_FREQ       = 10;
 unsigned int BSSN_TIME_STEP_OUTPUT_FREQ = 10;
 
 double BSSN_BH_MERGE_TIME          = std::numeric_limits<double>::max();
+double BSSN_TARGET_ORBITS          = 0.0;
 unsigned int BSSN_BH_MERGE_STEP    = std::numeric_limits<unsigned int>::max();
 
 unsigned int BSSN_GW_EXTRACT_FREQ  = std::numeric_limits<unsigned int>::max();
@@ -521,6 +522,8 @@ void readParamTOMLFile(const char* fName, MPI_Comm comm) {
         {"TPID_FILEPREFIX", TPID::FILE_PREFIX, UseInitialValue},
         {"TPID_REPLACE_LAPSE_WITH_SQRT_CHI", TPID::replace_lapse_with_sqrt_chi,
          UseInitialValue},
+        // Tier 3.3: PN orbit-count → half-separation (applied after BH/TPID)
+        {"BSSN_TARGET_ORBITS", bssn::BSSN_TARGET_ORBITS, UseInitialValue},
 
         // wave extraction optional parameter
         {"EXTRACTION_VAR_ID", BHLOC::EXTRACTION_VAR_ID, UseInitialValue},
@@ -726,6 +729,44 @@ void readParamTOMLFile(const char* fName, MPI_Comm comm) {
     TPID::center_offset[1] = parFile["TPID_CENTER_OFFSET"]["Y"].as_floating();
     TPID::center_offset[2] = parFile["TPID_CENTER_OFFSET"]["Z"].as_floating();
     used_params.insert("TPID_CENTER_OFFSET");
+
+    // Tier 3.3: BSSN_TARGET_ORBITS → half-separation + BH X (leading-order PN).
+    // N ≈ (1/(32πν)) (a/M)^{5/2}  ⇒  a/M = (32 π ν N)^{2/5},  b = a/2.
+    // Must re-solve TPID after. Mirror of JSON path in grUtils.cpp.
+    if (bssn::BSSN_TARGET_ORBITS > 0.0) {
+        const double m1 = bssn::BH1.getBHMass();
+        const double m2 = bssn::BH2.getBHMass();
+        const double M  = m1 + m2;
+        const double nu = (m1 * m2) / (M * M);
+        const double N  = bssn::BSSN_TARGET_ORBITS;
+        const double aM = std::pow(32.0 * M_PI * nu * N, 2.0 / 5.0);
+        const double a  = aM * M;
+        const double b  = 0.5 * a;
+        TPID::par_b     = b;
+        const double ox = TPID::center_offset[0];
+        const double oy = TPID::center_offset[1];
+        const double oz = TPID::center_offset[2];
+        bssn::BH1 =
+            BH(m1, ox + b, oy, oz, bssn::BH1.getVx(), bssn::BH1.getVy(),
+               bssn::BH1.getVz(), bssn::BH1.getBHSpin(),
+               bssn::BH1.getBHSpinTheta(), bssn::BH1.getBHSpinPhi());
+        bssn::BH2 =
+            BH(m2, ox - b, oy, oz, bssn::BH2.getVx(), bssn::BH2.getVy(),
+               bssn::BH2.getVz(), bssn::BH2.getBHSpin(),
+               bssn::BH2.getBHSpinTheta(), bssn::BH2.getBHSpinPhi());
+        // Keep TPID momenta/spins in sync with updated BH (same as file path).
+        TPID::par_P_plus[0]  = bssn::BH1.getVx();
+        TPID::par_P_plus[1]  = bssn::BH1.getVy();
+        TPID::par_P_plus[2]  = bssn::BH1.getVz();
+        TPID::par_P_minus[0] = bssn::BH2.getVx();
+        TPID::par_P_minus[1] = bssn::BH2.getVy();
+        TPID::par_P_minus[2] = bssn::BH2.getVz();
+        int rank = 0;
+        MPI_Comm_rank(comm, &rank);
+        if (!rank)
+            std::cout << "[TARGET_ORBITS] N=" << N << " → a/M=" << aM
+                      << " par_b=" << b << " (re-solve TPID required)\n";
+    }
 
     // extractio parameters that need to be read separately
     if (GW::BSSN_GW_NUM_RADAII == 0 ||
@@ -1144,6 +1185,7 @@ void writeParamTOMLFile(const char* fName, MPI_Comm comm) {
             {"DISSIPATION_TYPE", bssn::DISSIPATION_TYPE},
             {"BSSN_CFL_FACTOR", bssn::BSSN_CFL_FACTOR},
             {"BSSN_VTU_Z_SLICE_ONLY", bssn::BSSN_VTU_Z_SLICE_ONLY},
+            {"BSSN_TARGET_ORBITS", bssn::BSSN_TARGET_ORBITS},
             {"BSSN_BH1_AMR_R", bssn::BSSN_BH1_AMR_R},
             {"BSSN_BH2_AMR_R", bssn::BSSN_BH2_AMR_R},
             {"BSSN_AMR_R_RATIO", bssn::BSSN_AMR_R_RATIO},

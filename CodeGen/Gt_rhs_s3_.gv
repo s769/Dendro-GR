@@ -1,0 +1,21 @@
+digraph{
+
+# Graph style
+"ordering"="out"
+"rankdir"="TD"
+
+#########
+# Nodes #
+#########
+
+"Mul(Symbol('CalGt2[pp]'), Symbol('DENDRO_0'))_()" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Symbol('CalGt2[pp]')_(0,)" ["color"="black", "label"="CalGt2[pp]", "shape"="ellipse"];
+"Symbol('DENDRO_0')_(1,)" ["color"="black", "label"="DENDRO_0", "shape"="ellipse"];
+
+#########
+# Edges #
+#########
+
+"Mul(Symbol('CalGt2[pp]'), Symbol('DENDRO_0'))_()" -> "Symbol('CalGt2[pp]')_(0,)";
+"Mul(Symbol('CalGt2[pp]'), Symbol('DENDRO_0'))_()" -> "Symbol('DENDRO_0')_(1,)";
+}

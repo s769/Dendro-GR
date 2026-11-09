@@ -37,4 +37,19 @@ namespace device { namespace tl { namespace gauge_codegen {
 // ---- Jgt_dAt0 ----
 // Jgt_dAt0 = -2*alpha[pp]*v_At0[pp];
 
+// ---- JK_dK ----
+// JK_dK = 2*K[pp]*alpha[pp]*v_K[pp]/3 + beta0[pp]*grad_0_v_K + beta1[pp]*grad_1_v_K + beta2[pp]*grad_2_v_K + ko_sigma*(kograd_0_v_K + kograd_1_v_K + kograd_2_v_K);
+
+// ---- JK_dalpha ----
+// JK_dalpha = v_alpha[pp]*(At2[pp] + K[pp]**2/3);
+
+// ---- JAt_dAt0 ----
+// JAt_dAt0 = alpha[pp]*(-4*At0[pp]*v_At0[pp] + K[pp]*v_At0[pp]) + beta0[pp]*grad_0_v_At0 + beta1[pp]*grad_1_v_At0 + beta2[pp]*grad_2_v_At0 + ko_sigma*(kograd_0_v_At0 + kograd_1_v_At0 + kograd_2_v_At0) - 2*v_At0[pp]*(grad_0_beta0 + grad_1_beta1 + grad_2_beta2)/3;
+
+// ---- JAt_dalpha ----
+// JAt_dalpha = v_alpha[pp]*(-2*At0[pp]**2 + At0[pp]*K[pp]);
+
+// ---- JGt_dGt0 ----
+// JGt_dGt0 = beta0[pp]*grad_0_v_Gt0 + beta1[pp]*grad_1_v_Gt0 + beta2[pp]*grad_2_v_Gt0 - grad_0_beta0*v_Gt0[pp] + ko_sigma*(kograd_0_v_Gt0 + kograd_1_v_Gt0 + kograd_2_v_Gt0) + 2*v_Gt0[pp]*(grad_0_beta0 + grad_1_beta1 + grad_2_beta2)/3;
+
 }}}  // namespace device::tl::gauge_codegen

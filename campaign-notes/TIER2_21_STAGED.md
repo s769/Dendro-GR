@@ -42,6 +42,78 @@ GB200 result changes the priority: local mem is crushing L1TEX; a reload that re
 
 Raw: `tier0/tier21_rhs_ab.log`. GMEM confirms: don’t chase occupancy by dropping the shared stencil tile. F32SU is a candidate smem shrink, not algebra staging.
 
+## B1 defer-DD GB200 retest (2026-11-09, c101-021)
+
+`DENDRO_RHS_PT_ASYNC_DEFER=1` via `gen_gauge6_defer_dd.py` → `gauge6_point_async_defer.cpp`
+(first+KO early; reload+seconds before K / Gt / Ricci).
+
+| mode | ETS (s) | vs ASYNC | note |
+|------|--------:|---------:|------|
+| PT_ASYNC | **2.450** | — | prod |
+| PT_ASYNC_DEFER | 2.638 | **+7.7%** | **NO-GO** (reload tax > spill win; same as A100) |
+
+Raw: `tier0/tier21_defer_ab.log`. Meshprobe TIME_END=0.25 has no C_HAM samples (ETS-only).
+
+## F32SU C_HAM bit-id (q1 smoke_cons, c101-008)
+
+| mode | ETS (s) | C_HAM samples (5) |
+|------|--------:|-------------------|
+| ASYNC | 12.646 | 9.84604e-6 … 9.83726e-6 |
+| F32SU | 12.566 (−0.6%) | last digits drift ≤1e-11 |
+
+**Not bit-identical** (print-level Δ≤1e-11). Keep F32SU as ETS hedge only — not prod. Raw: `tier0/tier21_f32su_bitid.log`.
+
+## B1 scoped restage (2026-11-09, c101-021)
+
+Section-scoped PT kernel from `bssn_manually_staged.rhs_with_d_computations()` +
+`gen_gauge6_pt_scoped.py` (late stages re-load every deriv they need).
+
+| mode | ETS (s) | vs ASYNC | note |
+|------|--------:|---------:|------|
+| PT_ASYNC | **2.444** | — | prod |
+| PT_ASYNC_SCOPED | 5.446 | **+123%** | **NO-GO** — restencil tax dominates |
+
+Raw: `tier0/tier21_scoped_ab.log`. Lesson: staging must cut live ranges **without**
+re-running DD stencils on the critical path. Next candidates: (1) outer-scope
+`RIJ`/`igt` temps so Ricci runs once then drops gt seconds; (2) reorder-while-hot
+(compute seconds while `su` holds the var, use immediately, close scope) with
+**no** reload; (3) SymPy CSE reducing DENDRO temp live sets inside the existing
+monolithic load order.
+
+## B1 side win — `launch_bounds` (2026-11-09, c101-021)
+
+`eval_rhs3_pt_async`: `__launch_bounds__(343, 3)` → `(343, 1)`.
+
+Smem already limits occupancy to ~1 blk/SM; `minBlocks=3` only tightened the
+compiler’s register budget and fed local spills.
+
+| mode | ETS (s) | vs prior ASYNC |
+|------|--------:|---------------:|
+| ASYNC `lb(343,3)` | ~2.45 | — |
+| ASYNC `lb(343,1)` | **2.064–2.084** | **≈ −15–16%** |
+
+NCU lb1 (`tier0/tier21_ncu_lb1.log`, `rhs_pt_async_lb1.ncu-rep`):
+
+| metric | lb3 (B0) | lb1 |
+|--------|---------:|----:|
+| regs/thread | **56** | **168** |
+| smem/block | 17.58 KB | 17.58 KB |
+| achieved occ | 17.2% | 17.2% |
+| local ld sectors | (spill-heavy) | 131M |
+
+`minBlocks=3` was starving the register file; lb1 lets NVCC keep the working set in regs. Occ still smem-capped. Raw ETS: `tier0/tier21_lb1_ab.log`. **Keep `lb(343,1)` as prod.**
+
+## F32SU under lb1 (2026-11-09)
+
+| mode | ETS (s) | vs ASYNC lb1 |
+|------|--------:|-------------:|
+| ASYNC lb1 | **2.061** | — |
+| F32SU lb1 | 2.358 | **+14%** |
+
+F32SU’s prior −8% edge vs lb3-ASYNC disappears once ASYNC gets the reg budget. **Park F32SU.** Raw: `tier0/tier21_f32su_lb1.log`.
+
 ## Status
 
-**B0 done.** B1 = true live-range / CSE staging inside PT_ASYNC (not GMEM, not WS-HBM). F32SU bit-id is a side check.
+**B0 done. Defer-DD NO-GO. Scoped-restencil NO-GO. `launch_bounds(343,1)` landed (~−15% ETS).**
+Further B1 = live-range/CSE without restencil (still valuable for K/CTA headroom).
+B2 ensK baseline: `tier0/tier21_ensK_baseline.md`.

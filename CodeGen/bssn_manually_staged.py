@@ -1,16 +1,12 @@
 '''
 Try to stage BSSN computations manually. 
 '''
-from distutils.cygwinccompiler import CygwinCCompiler
 import enum
-from pyclbr import Function
-
-from numpy import c_
 import dendro
-import contextlib 
+import contextlib
 import io
-import importlib 
-import nxgraph 
+import importlib
+import nxgraph
 importlib.reload(nxgraph)
 import networkx as nx
 import sympy
@@ -1089,7 +1085,8 @@ def rhs_with_d_computations():
     c_code += f.getvalue()
     c_code +=apply_bc("a_rhs")
     c_code +=apply_ko("a_rhs")
-    print("%s\n{\n%s\n}\n"%(a_derivs,c_code))
+    # Scope derivs+algebra together so grads can die between stages.
+    print("{\n%s\n%s\n}\n"%(a_derivs,c_code))
 
     c_code     = ""
     with contextlib.redirect_stdout(io.StringIO()) as f:
@@ -1097,29 +1094,40 @@ def rhs_with_d_computations():
     c_code += f.getvalue()
     c_code +=apply_bc("b_rhs")
     c_code +=apply_ko("b_rhs")
-    print("%s\n{\n%s\n}\n"%(b_derivs, c_code))
+    print("{\n%s\n%s\n}\n"%(b_derivs, c_code))
 
-    chi_derivs = first_and_second_derivs("chi",True)  + ko_derivs_only("chi",False)
+    chi_derivs = (
+        "\n".join([first_derivs_only("beta%d"%i, True) for i in range(3)])
+        + first_and_second_derivs("chi",True) + ko_derivs_only("chi",False)
+    )
     c_code     = ""
     with contextlib.redirect_stdout(io.StringIO()) as f:
         dendro.generate_cpu([chi_rhs],['chi_rhs'],'[pp]')
     c_code += f.getvalue()
     c_code +=apply_bc("chi_rhs")
     c_code +=apply_ko("chi_rhs")
-    print("%s\n{\n%s\n}\n"%(chi_derivs, c_code))
+    print("{\n%s\n%s\n}\n"%(chi_derivs, c_code))
 
     gt_derivs  = "\n".join([first_and_second_derivs("gt%d"%i,True) + ko_derivs_only("gt%d"%i,False) for i in range(6)   ])
+    # gt_rhs needs beta first grads — recompute first+ko for betas inside this stage.
+    gt_beta_first = "\n".join([first_derivs_only("beta%d"%i,True) + ko_derivs_only("beta%d"%i,False) for i in range(3)])
     c_code     = ""
     with contextlib.redirect_stdout(io.StringIO()) as f:
         dendro.generate_cpu([gt_rhs],['gt_rhs'],'[pp]')
     c_code += f.getvalue()
     c_code +=apply_bc("gt_rhs")
     c_code +=apply_ko("gt_rhs")
-    print("%s\n{\n%s\n}\n"%(gt_derivs, c_code))
+    print("{\n%s\n%s\n%s\n}\n"%(gt_beta_first, gt_derivs, c_code))
 
-    # print(declare_temp_vars)
-    # print(inverse_metric_code + christoffel_c1_code + christoffel_c2_code + christoffel_c3_code + Gt_from_metric_code)
-    K_derivs   = first_derivs_only("K",True)  + ko_derivs_only("K",False)
+    # Late stages re-load every deriv they need (scoped); peak live grads drop vs monolithic.
+    K_derivs = (
+        first_and_second_derivs("alpha", True) + ko_derivs_only("alpha", False)
+        + first_and_second_derivs("chi", True) + ko_derivs_only("chi", False)
+        + "\n".join([first_and_second_derivs("gt%d"%i, True) + ko_derivs_only("gt%d"%i, False) for i in range(6)])
+        + "\n".join([first_derivs_only("At%d"%i, True) for i in range(6)])
+        + first_derivs_only("K", True) + ko_derivs_only("K", False)
+        + "\n".join([first_derivs_only("beta%d"%i, True) for i in range(3)])
+    )
     c_code     = ""
     with contextlib.redirect_stdout(io.StringIO()) as f:
         dendro.generate_cpu([K_rhs],['K_rhs'],'[pp]')
@@ -1128,10 +1136,18 @@ def rhs_with_d_computations():
     c_code += f.getvalue()
     c_code +=apply_bc("K_rhs")
     c_code +=apply_ko("K_rhs")
-    print("%s\n{\n%s\n}\n"%(K_derivs, c_code))
+    print("{\n%s\n%s\n}\n"%(K_derivs, c_code))
 
-    Gt_derivs  = "\n".join([first_derivs_only("Gt%d"%i,True)    + ko_derivs_only("Gt%d"%i,False) for i in range(3) ])
-    B_derivs   = "\n".join([first_derivs_only("B%d"%i,True)     + ko_derivs_only("B%d"%i,False) for i in range(3) ])
+    Gt_derivs  = (
+        "\n".join([first_and_second_derivs("beta%d"%i, True) + ko_derivs_only("beta%d"%i, False) for i in range(3)])
+        + "\n".join([first_and_second_derivs("gt%d"%i, True) for i in range(6)])
+        + first_and_second_derivs("chi", True)
+        + "\n".join([first_derivs_only("At%d"%i, True) for i in range(6)])
+        + "\n".join([first_derivs_only("Gt%d"%i,True) + ko_derivs_only("Gt%d"%i,False) for i in range(3)])
+        + "\n".join([first_derivs_only("B%d"%i,True) + ko_derivs_only("B%d"%i,False) for i in range(3)])
+        + first_derivs_only("alpha", True)
+        + first_derivs_only("K", True)
+    )
     
     c_code     = ""
     with contextlib.redirect_stdout(io.StringIO()) as f:
@@ -1143,9 +1159,17 @@ def rhs_with_d_computations():
     c_code +=apply_ko("Gt_rhs")
     c_code +=apply_bc("B_rhs")
     c_code +=apply_ko("B_rhs")
-    print("%s\n{\n%s\n}\n"%(Gt_derivs + B_derivs, c_code))
+    print("{\n%s\n%s\n}\n"%(Gt_derivs, c_code))
 
-    At_derivs  = "\n".join([first_derivs_only("At%d"%i,True) + ko_derivs_only("At%d"%i,False) for i in range(6)])
+    At_derivs  = (
+        "\n".join([first_and_second_derivs("gt%d"%i, True) + ko_derivs_only("gt%d"%i, False) for i in range(6)])
+        + first_and_second_derivs("chi", True) + ko_derivs_only("chi", False)
+        + first_and_second_derivs("alpha", True) + ko_derivs_only("alpha", False)
+        + "\n".join([first_derivs_only("Gt%d"%i, True) for i in range(3)])
+        + "\n".join([first_derivs_only("At%d"%i,True) + ko_derivs_only("At%d"%i,False) for i in range(6)])
+        + "\n".join([first_derivs_only("beta%d"%i, True) for i in range(3)])
+        + first_derivs_only("K", True)
+    )
     c_code     = ""
     with contextlib.redirect_stdout(io.StringIO()) as f:
         dendro.generate_cpu([At_rhs],['At_rhs'],'[pp]')
@@ -1154,7 +1178,7 @@ def rhs_with_d_computations():
     c_code += f.getvalue()
     c_code +=apply_bc("At_rhs")
     c_code +=apply_ko("At_rhs")
-    print("%s\n{\n%s\n}\n"%(At_derivs, c_code))
+    print("{\n%s\n%s\n}\n"%(At_derivs, c_code))
 
 
 
@@ -1170,4 +1194,4 @@ def rhs_with_d_computations():
 #rhs_reduced_temp_vars()
 #rhs_reduced_temp_vars_with_component_wise_parallelism()
 #traversal_base_code_gen()
-rhs_with_d_computations()
+# rhs_with_d_computations()  # invoke explicitly

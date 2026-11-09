@@ -1,0 +1,47 @@
+digraph{
+
+# Graph style
+"ordering"="out"
+"rankdir"="TD"
+
+#########
+# Nodes #
+#########
+
+"Add(Symbol('Gt_rhs_s1_2[pp]'), Symbol('Gt_rhs_s4_2[pp]'), Symbol('Gt_rhs_s6_2[pp]'), Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]')), Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]')))_()" ["color"="black", "label"="Add", "shape"="ellipse"];
+"Symbol('Gt_rhs_s1_2[pp]')_(0,)" ["color"="black", "label"="Gt_rhs_s1_2[pp]", "shape"="ellipse"];
+"Symbol('Gt_rhs_s4_2[pp]')_(1,)" ["color"="black", "label"="Gt_rhs_s4_2[pp]", "shape"="ellipse"];
+"Symbol('Gt_rhs_s6_2[pp]')_(2,)" ["color"="black", "label"="Gt_rhs_s6_2[pp]", "shape"="ellipse"];
+"Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]'))_(3,)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Integer(-1)_(3, 0)" ["color"="black", "label"="-1", "shape"="ellipse"];
+"Symbol('Gt_rhs_s2_2[pp]')_(3, 1)" ["color"="black", "label"="Gt_rhs_s2_2[pp]", "shape"="ellipse"];
+"Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]'))_(4,)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Integer(-1)_(4, 0)" ["color"="black", "label"="-1", "shape"="ellipse"];
+"Symbol('Gt_rhs_s5_2[pp]')_(4, 1)" ["color"="black", "label"="Gt_rhs_s5_2[pp]", "shape"="ellipse"];
+"Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]'))_(5,)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Integer(-1)_(5, 0)" ["color"="black", "label"="-1", "shape"="ellipse"];
+"Symbol('Gt_rhs_s7_2[pp]')_(5, 1)" ["color"="black", "label"="Gt_rhs_s7_2[pp]", "shape"="ellipse"];
+"Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]'))_(6,)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Rational(2, 3)_(6, 0)" ["color"="black", "label"="2/3", "shape"="ellipse"];
+"Symbol('Gt_rhs_s3_2[pp]')_(6, 1)" ["color"="black", "label"="Gt_rhs_s3_2[pp]", "shape"="ellipse"];
+
+#########
+# Edges #
+#########
+
+"Add(Symbol('Gt_rhs_s1_2[pp]'), Symbol('Gt_rhs_s4_2[pp]'), Symbol('Gt_rhs_s6_2[pp]'), Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]')), Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]')))_()" -> "Symbol('Gt_rhs_s1_2[pp]')_(0,)";
+"Add(Symbol('Gt_rhs_s1_2[pp]'), Symbol('Gt_rhs_s4_2[pp]'), Symbol('Gt_rhs_s6_2[pp]'), Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]')), Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]')))_()" -> "Symbol('Gt_rhs_s4_2[pp]')_(1,)";
+"Add(Symbol('Gt_rhs_s1_2[pp]'), Symbol('Gt_rhs_s4_2[pp]'), Symbol('Gt_rhs_s6_2[pp]'), Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]')), Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]')))_()" -> "Symbol('Gt_rhs_s6_2[pp]')_(2,)";
+"Add(Symbol('Gt_rhs_s1_2[pp]'), Symbol('Gt_rhs_s4_2[pp]'), Symbol('Gt_rhs_s6_2[pp]'), Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]')), Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]')))_()" -> "Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]'))_(3,)";
+"Add(Symbol('Gt_rhs_s1_2[pp]'), Symbol('Gt_rhs_s4_2[pp]'), Symbol('Gt_rhs_s6_2[pp]'), Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]')), Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]')))_()" -> "Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]'))_(4,)";
+"Add(Symbol('Gt_rhs_s1_2[pp]'), Symbol('Gt_rhs_s4_2[pp]'), Symbol('Gt_rhs_s6_2[pp]'), Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]')), Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]')))_()" -> "Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]'))_(5,)";
+"Add(Symbol('Gt_rhs_s1_2[pp]'), Symbol('Gt_rhs_s4_2[pp]'), Symbol('Gt_rhs_s6_2[pp]'), Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]')), Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]')), Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]')))_()" -> "Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]'))_(6,)";
+"Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]'))_(3,)" -> "Integer(-1)_(3, 0)";
+"Mul(Integer(-1), Symbol('Gt_rhs_s2_2[pp]'))_(3,)" -> "Symbol('Gt_rhs_s2_2[pp]')_(3, 1)";
+"Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]'))_(4,)" -> "Integer(-1)_(4, 0)";
+"Mul(Integer(-1), Symbol('Gt_rhs_s5_2[pp]'))_(4,)" -> "Symbol('Gt_rhs_s5_2[pp]')_(4, 1)";
+"Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]'))_(5,)" -> "Integer(-1)_(5, 0)";
+"Mul(Integer(-1), Symbol('Gt_rhs_s7_2[pp]'))_(5,)" -> "Symbol('Gt_rhs_s7_2[pp]')_(5, 1)";
+"Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]'))_(6,)" -> "Rational(2, 3)_(6, 0)";
+"Mul(Rational(2, 3), Symbol('Gt_rhs_s3_2[pp]'))_(6,)" -> "Symbol('Gt_rhs_s3_2[pp]')_(6, 1)";
+}

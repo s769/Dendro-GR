@@ -96,12 +96,42 @@ def build_gauge_rhs():
         + _ko_sum("gt0", ko_sigma)
     )
 
+    # K: product/KO piece (lap α held out) — matches tl_K_test
+    At2 = Symbol("At2[pp]")  # At_ij At^ij treated as independent input
+    K_rhs = (
+        _adv(beta, "K")
+        + alpha * (K * K / 3 + At2)
+        + _ko_sum("K", ko_sigma)
+    )
+
+    # At00: algebraic+Lie slice (Ricci/DiDjα held out) — matches tl_At_test
+    # A0k A^k_0 ≈ At0² for diagonal smoke
+    divb = sum(_grad(i, f"beta{i}") for i in range(3))
+    At_rhs0 = (
+        _adv(beta, "At0")
+        + Rational(-2, 3) * At0 * divb
+        + alpha * (K * At0 - 2 * At0 * At0)
+        + _ko_sum("At0", ko_sigma)
+    )
+
+    # Gt0: Lie+Gtk+KO slice (Christoffel/β-seconds held out) — matches tl_Gt_test
+    # Gtk≈Gt with Gt1=Gt2=0 ⇒ −Gt0 ∂0 β0
+    Gt_rhs0_lie = (
+        _adv(beta, "Gt0")
+        + Rational(2, 3) * Gt[0] * divb
+        - Gt[0] * _grad(0, "beta0")
+        + _ko_sum("Gt0", ko_sigma)
+    )
+
     return {
         "a_rhs": a_rhs,
         "b_rhs0": b_rhs0,
         "B_rhs0": B_rhs0,
         "chi_rhs": chi_rhs,
         "gt_rhs0": gt_rhs0,
+        "K_rhs": K_rhs,
+        "At_rhs0": At_rhs0,
+        "Gt_rhs0_lie": Gt_rhs0_lie,
         "syms": {
             "l0": l0,
             "l1": l1,
@@ -120,6 +150,7 @@ def build_gauge_rhs():
             "gt1": gt1,
             "gt2": gt2,
             "At0": At0,
+            "At2": At2,
         },
     }
 
@@ -228,6 +259,31 @@ def expected_closed_forms(S):
     Jgt_dalpha = -2 * At0 * v_alpha
     Jgt_dAt0 = -2 * alpha * v_At0
 
+    At2 = S["At2"]
+    At0 = S["At0"]
+    Gt0 = S["Gt"][0]
+    v_At0 = Symbol("v_At0[pp]")
+    v_Gt0 = Symbol("v_Gt0[pp]")
+    JK_dK = (
+        _adv(beta, "v_K")
+        + alpha * (Rational(2, 3) * K * v_K)
+        + _ko_sum("v_K", ko_sigma)
+    )
+    JK_dalpha = v_alpha * (K * K / 3 + At2)
+    JAt_dAt0 = (
+        _adv(beta, "v_At0")
+        + Rational(-2, 3) * v_At0 * sum(_grad(i, f"beta{i}") for i in range(3))
+        + alpha * (K * v_At0 - 4 * At0 * v_At0)
+        + _ko_sum("v_At0", ko_sigma)
+    )
+    JAt_dalpha = v_alpha * (K * At0 - 2 * At0 * At0)
+    JGt_dGt0 = (
+        _adv(beta, "v_Gt0")
+        + Rational(2, 3) * v_Gt0 * sum(_grad(i, f"beta{i}") for i in range(3))
+        - v_Gt0 * _grad(0, "beta0")
+        + _ko_sum("v_Gt0", ko_sigma)
+    )
+
     return {
         "a_rhs_dalpha": Ja_dalpha,
         "b_rhs0_dbeta0": Jb_dbeta0,
@@ -240,6 +296,11 @@ def expected_closed_forms(S):
         "gt_rhs0_dgt1": Jgt_dgt1,
         "gt_rhs0_dalpha": Jgt_dalpha,
         "gt_rhs0_dAt0": Jgt_dAt0,
+        "K_rhs_dK": JK_dK,
+        "K_rhs_dalpha": JK_dalpha,
+        "At_rhs0_dAt0": JAt_dAt0,
+        "At_rhs0_dalpha": JAt_dalpha,
+        "Gt_rhs0_dGt0": JGt_dGt0,
     }
 
 
@@ -344,6 +405,45 @@ def main():
         ("gt_rhs0 / δAt0", restrict_direction(Jgt, {"At0"}), expected["gt_rhs0_dAt0"])
     )
 
+    JK = directional_derivative(pack["K_rhs"], pack["K_rhs"].free_symbols)
+    checks.append(
+        ("K_rhs / δK", restrict_direction(JK, {"K"}), expected["K_rhs_dK"])
+    )
+    checks.append(
+        (
+            "K_rhs / δalpha",
+            restrict_direction(JK, {"alpha"}),
+            expected["K_rhs_dalpha"],
+        )
+    )
+
+    JAt = directional_derivative(pack["At_rhs0"], pack["At_rhs0"].free_symbols)
+    checks.append(
+        (
+            "At_rhs0 / δAt0",
+            restrict_direction(JAt, {"At0"}),
+            expected["At_rhs0_dAt0"],
+        )
+    )
+    checks.append(
+        (
+            "At_rhs0 / δalpha",
+            restrict_direction(JAt, {"alpha"}),
+            expected["At_rhs0_dalpha"],
+        )
+    )
+
+    JGt = directional_derivative(
+        pack["Gt_rhs0_lie"], pack["Gt_rhs0_lie"].free_symbols
+    )
+    checks.append(
+        (
+            "Gt_rhs0_lie / δGt0",
+            restrict_direction(JGt, {"Gt0"}),
+            expected["Gt_rhs0_dGt0"],
+        )
+    )
+
     failed = 0
     for tag, got, exp in checks:
         diff = simplify(got - exp)
@@ -370,6 +470,11 @@ def main():
                 "Jgt_dgt1": expected["gt_rhs0_dgt1"],
                 "Jgt_dalpha": expected["gt_rhs0_dalpha"],
                 "Jgt_dAt0": expected["gt_rhs0_dAt0"],
+                "JK_dK": expected["K_rhs_dK"],
+                "JK_dalpha": expected["K_rhs_dalpha"],
+                "JAt_dAt0": expected["At_rhs0_dAt0"],
+                "JAt_dalpha": expected["At_rhs0_dalpha"],
+                "JGt_dGt0": expected["Gt_rhs0_dGt0"],
             },
         )
 

@@ -1,0 +1,87 @@
+digraph{
+
+# Graph style
+"ordering"="out"
+"rankdir"="TD"
+
+#########
+# Nodes #
+#########
+
+"Mul(Symbol('DENDRO_26'), Add(Mul(Symbol('DENDRO_22'), Symbol('grad_0_alpha[pp]')), Mul(Symbol('grad_2_alpha[pp]'), Add(Mul(Symbol('At0[pp]'), Symbol('DENDRO_4')), Mul(Symbol('At3[pp]'), Symbol('DENDRO_27')), Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2))), Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9')), Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31')), Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19')))), Mul(Integer(-1), Symbol('DENDRO_33'), Symbol('grad_1_alpha[pp]'))))_()" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Symbol('DENDRO_26')_(0,)" ["color"="black", "label"="DENDRO_26", "shape"="ellipse"];
+"Add(Mul(Symbol('DENDRO_22'), Symbol('grad_0_alpha[pp]')), Mul(Symbol('grad_2_alpha[pp]'), Add(Mul(Symbol('At0[pp]'), Symbol('DENDRO_4')), Mul(Symbol('At3[pp]'), Symbol('DENDRO_27')), Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2))), Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9')), Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31')), Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19')))), Mul(Integer(-1), Symbol('DENDRO_33'), Symbol('grad_1_alpha[pp]')))_(1,)" ["color"="black", "label"="Add", "shape"="ellipse"];
+"Mul(Symbol('DENDRO_22'), Symbol('grad_0_alpha[pp]'))_(1, 0)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Symbol('DENDRO_22')_(1, 0, 0)" ["color"="black", "label"="DENDRO_22", "shape"="ellipse"];
+"Symbol('grad_0_alpha[pp]')_(1, 0, 1)" ["color"="black", "label"="grad_0_alpha[pp]", "shape"="ellipse"];
+"Mul(Symbol('grad_2_alpha[pp]'), Add(Mul(Symbol('At0[pp]'), Symbol('DENDRO_4')), Mul(Symbol('At3[pp]'), Symbol('DENDRO_27')), Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2))), Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9')), Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31')), Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19'))))_(1, 1)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Symbol('grad_2_alpha[pp]')_(1, 1, 0)" ["color"="black", "label"="grad_2_alpha[pp]", "shape"="ellipse"];
+"Add(Mul(Symbol('At0[pp]'), Symbol('DENDRO_4')), Mul(Symbol('At3[pp]'), Symbol('DENDRO_27')), Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2))), Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9')), Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31')), Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19')))_(1, 1, 1)" ["color"="black", "label"="Add", "shape"="ellipse"];
+"Mul(Symbol('At0[pp]'), Symbol('DENDRO_4'))_(1, 1, 1, 0)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Symbol('At0[pp]')_(1, 1, 1, 0, 0)" ["color"="black", "label"="At0[pp]", "shape"="ellipse"];
+"Symbol('DENDRO_4')_(1, 1, 1, 0, 1)" ["color"="black", "label"="DENDRO_4", "shape"="ellipse"];
+"Mul(Symbol('At3[pp]'), Symbol('DENDRO_27'))_(1, 1, 1, 1)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Symbol('At3[pp]')_(1, 1, 1, 1, 0)" ["color"="black", "label"="At3[pp]", "shape"="ellipse"];
+"Symbol('DENDRO_27')_(1, 1, 1, 1, 1)" ["color"="black", "label"="DENDRO_27", "shape"="ellipse"];
+"Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2)))_(1, 1, 1, 2)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Symbol('At5[pp]')_(1, 1, 1, 2, 0)" ["color"="black", "label"="At5[pp]", "shape"="ellipse"];
+"Pow(Symbol('DENDRO_19'), Integer(2))_(1, 1, 1, 2, 1)" ["color"="black", "label"="Pow", "shape"="ellipse"];
+"Symbol('DENDRO_19')_(1, 1, 1, 2, 1, 0)" ["color"="black", "label"="DENDRO_19", "shape"="ellipse"];
+"Integer(2)_(1, 1, 1, 2, 1, 1)" ["color"="black", "label"="2", "shape"="ellipse"];
+"Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9'))_(1, 1, 1, 3)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Integer(-1)_(1, 1, 1, 3, 0)" ["color"="black", "label"="-1", "shape"="ellipse"];
+"Symbol('DENDRO_32')_(1, 1, 1, 3, 1)" ["color"="black", "label"="DENDRO_32", "shape"="ellipse"];
+"Symbol('DENDRO_9')_(1, 1, 1, 3, 2)" ["color"="black", "label"="DENDRO_9", "shape"="ellipse"];
+"Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31'))_(1, 1, 1, 4)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Integer(-2)_(1, 1, 1, 4, 0)" ["color"="black", "label"="-2", "shape"="ellipse"];
+"Symbol('At1[pp]')_(1, 1, 1, 4, 1)" ["color"="black", "label"="At1[pp]", "shape"="ellipse"];
+"Symbol('DENDRO_31')_(1, 1, 1, 4, 2)" ["color"="black", "label"="DENDRO_31", "shape"="ellipse"];
+"Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19'))_(1, 1, 1, 5)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Symbol('At2[pp]')_(1, 1, 1, 5, 0)" ["color"="black", "label"="At2[pp]", "shape"="ellipse"];
+"Symbol('DENDRO_13')_(1, 1, 1, 5, 1)" ["color"="black", "label"="DENDRO_13", "shape"="ellipse"];
+"Symbol('DENDRO_19')_(1, 1, 1, 5, 2)" ["color"="black", "label"="DENDRO_19", "shape"="ellipse"];
+"Mul(Integer(-1), Symbol('DENDRO_33'), Symbol('grad_1_alpha[pp]'))_(1, 2)" ["color"="black", "label"="Mul", "shape"="ellipse"];
+"Integer(-1)_(1, 2, 0)" ["color"="black", "label"="-1", "shape"="ellipse"];
+"Symbol('DENDRO_33')_(1, 2, 1)" ["color"="black", "label"="DENDRO_33", "shape"="ellipse"];
+"Symbol('grad_1_alpha[pp]')_(1, 2, 2)" ["color"="black", "label"="grad_1_alpha[pp]", "shape"="ellipse"];
+
+#########
+# Edges #
+#########
+
+"Mul(Symbol('DENDRO_26'), Add(Mul(Symbol('DENDRO_22'), Symbol('grad_0_alpha[pp]')), Mul(Symbol('grad_2_alpha[pp]'), Add(Mul(Symbol('At0[pp]'), Symbol('DENDRO_4')), Mul(Symbol('At3[pp]'), Symbol('DENDRO_27')), Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2))), Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9')), Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31')), Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19')))), Mul(Integer(-1), Symbol('DENDRO_33'), Symbol('grad_1_alpha[pp]'))))_()" -> "Symbol('DENDRO_26')_(0,)";
+"Mul(Symbol('DENDRO_26'), Add(Mul(Symbol('DENDRO_22'), Symbol('grad_0_alpha[pp]')), Mul(Symbol('grad_2_alpha[pp]'), Add(Mul(Symbol('At0[pp]'), Symbol('DENDRO_4')), Mul(Symbol('At3[pp]'), Symbol('DENDRO_27')), Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2))), Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9')), Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31')), Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19')))), Mul(Integer(-1), Symbol('DENDRO_33'), Symbol('grad_1_alpha[pp]'))))_()" -> "Add(Mul(Symbol('DENDRO_22'), Symbol('grad_0_alpha[pp]')), Mul(Symbol('grad_2_alpha[pp]'), Add(Mul(Symbol('At0[pp]'), Symbol('DENDRO_4')), Mul(Symbol('At3[pp]'), Symbol('DENDRO_27')), Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2))), Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9')), Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31')), Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19')))), Mul(Integer(-1), Symbol('DENDRO_33'), Symbol('grad_1_alpha[pp]')))_(1,)";
+"Add(Mul(Symbol('DENDRO_22'), Symbol('grad_0_alpha[pp]')), Mul(Symbol('grad_2_alpha[pp]'), Add(Mul(Symbol('At0[pp]'), Symbol('DENDRO_4')), Mul(Symbol('At3[pp]'), Symbol('DENDRO_27')), Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2))), Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9')), Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31')), Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19')))), Mul(Integer(-1), Symbol('DENDRO_33'), Symbol('grad_1_alpha[pp]')))_(1,)" -> "Mul(Symbol('DENDRO_22'), Symbol('grad_0_alpha[pp]'))_(1, 0)";
+"Add(Mul(Symbol('DENDRO_22'), Symbol('grad_0_alpha[pp]')), Mul(Symbol('grad_2_alpha[pp]'), Add(Mul(Symbol('At0[pp]'), Symbol('DENDRO_4')), Mul(Symbol('At3[pp]'), Symbol('DENDRO_27')), Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2))), Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9')), Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31')), Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19')))), Mul(Integer(-1), Symbol('DENDRO_33'), Symbol('grad_1_alpha[pp]')))_(1,)" -> "Mul(Symbol('grad_2_alpha[pp]'), Add(Mul(Symbol('At0[pp]'), Symbol('DENDRO_4')), Mul(Symbol('At3[pp]'), Symbol('DENDRO_27')), Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2))), Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9')), Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31')), Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19'))))_(1, 1)";
+"Add(Mul(Symbol('DENDRO_22'), Symbol('grad_0_alpha[pp]')), Mul(Symbol('grad_2_alpha[pp]'), Add(Mul(Symbol('At0[pp]'), Symbol('DENDRO_4')), Mul(Symbol('At3[pp]'), Symbol('DENDRO_27')), Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2))), Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9')), Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31')), Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19')))), Mul(Integer(-1), Symbol('DENDRO_33'), Symbol('grad_1_alpha[pp]')))_(1,)" -> "Mul(Integer(-1), Symbol('DENDRO_33'), Symbol('grad_1_alpha[pp]'))_(1, 2)";
+"Mul(Symbol('DENDRO_22'), Symbol('grad_0_alpha[pp]'))_(1, 0)" -> "Symbol('DENDRO_22')_(1, 0, 0)";
+"Mul(Symbol('DENDRO_22'), Symbol('grad_0_alpha[pp]'))_(1, 0)" -> "Symbol('grad_0_alpha[pp]')_(1, 0, 1)";
+"Mul(Symbol('grad_2_alpha[pp]'), Add(Mul(Symbol('At0[pp]'), Symbol('DENDRO_4')), Mul(Symbol('At3[pp]'), Symbol('DENDRO_27')), Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2))), Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9')), Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31')), Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19'))))_(1, 1)" -> "Symbol('grad_2_alpha[pp]')_(1, 1, 0)";
+"Mul(Symbol('grad_2_alpha[pp]'), Add(Mul(Symbol('At0[pp]'), Symbol('DENDRO_4')), Mul(Symbol('At3[pp]'), Symbol('DENDRO_27')), Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2))), Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9')), Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31')), Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19'))))_(1, 1)" -> "Add(Mul(Symbol('At0[pp]'), Symbol('DENDRO_4')), Mul(Symbol('At3[pp]'), Symbol('DENDRO_27')), Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2))), Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9')), Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31')), Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19')))_(1, 1, 1)";
+"Add(Mul(Symbol('At0[pp]'), Symbol('DENDRO_4')), Mul(Symbol('At3[pp]'), Symbol('DENDRO_27')), Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2))), Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9')), Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31')), Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19')))_(1, 1, 1)" -> "Mul(Symbol('At0[pp]'), Symbol('DENDRO_4'))_(1, 1, 1, 0)";
+"Add(Mul(Symbol('At0[pp]'), Symbol('DENDRO_4')), Mul(Symbol('At3[pp]'), Symbol('DENDRO_27')), Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2))), Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9')), Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31')), Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19')))_(1, 1, 1)" -> "Mul(Symbol('At3[pp]'), Symbol('DENDRO_27'))_(1, 1, 1, 1)";
+"Add(Mul(Symbol('At0[pp]'), Symbol('DENDRO_4')), Mul(Symbol('At3[pp]'), Symbol('DENDRO_27')), Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2))), Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9')), Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31')), Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19')))_(1, 1, 1)" -> "Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2)))_(1, 1, 1, 2)";
+"Add(Mul(Symbol('At0[pp]'), Symbol('DENDRO_4')), Mul(Symbol('At3[pp]'), Symbol('DENDRO_27')), Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2))), Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9')), Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31')), Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19')))_(1, 1, 1)" -> "Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9'))_(1, 1, 1, 3)";
+"Add(Mul(Symbol('At0[pp]'), Symbol('DENDRO_4')), Mul(Symbol('At3[pp]'), Symbol('DENDRO_27')), Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2))), Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9')), Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31')), Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19')))_(1, 1, 1)" -> "Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31'))_(1, 1, 1, 4)";
+"Add(Mul(Symbol('At0[pp]'), Symbol('DENDRO_4')), Mul(Symbol('At3[pp]'), Symbol('DENDRO_27')), Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2))), Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9')), Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31')), Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19')))_(1, 1, 1)" -> "Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19'))_(1, 1, 1, 5)";
+"Mul(Symbol('At0[pp]'), Symbol('DENDRO_4'))_(1, 1, 1, 0)" -> "Symbol('At0[pp]')_(1, 1, 1, 0, 0)";
+"Mul(Symbol('At0[pp]'), Symbol('DENDRO_4'))_(1, 1, 1, 0)" -> "Symbol('DENDRO_4')_(1, 1, 1, 0, 1)";
+"Mul(Symbol('At3[pp]'), Symbol('DENDRO_27'))_(1, 1, 1, 1)" -> "Symbol('At3[pp]')_(1, 1, 1, 1, 0)";
+"Mul(Symbol('At3[pp]'), Symbol('DENDRO_27'))_(1, 1, 1, 1)" -> "Symbol('DENDRO_27')_(1, 1, 1, 1, 1)";
+"Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2)))_(1, 1, 1, 2)" -> "Symbol('At5[pp]')_(1, 1, 1, 2, 0)";
+"Mul(Symbol('At5[pp]'), Pow(Symbol('DENDRO_19'), Integer(2)))_(1, 1, 1, 2)" -> "Pow(Symbol('DENDRO_19'), Integer(2))_(1, 1, 1, 2, 1)";
+"Pow(Symbol('DENDRO_19'), Integer(2))_(1, 1, 1, 2, 1)" -> "Symbol('DENDRO_19')_(1, 1, 1, 2, 1, 0)";
+"Pow(Symbol('DENDRO_19'), Integer(2))_(1, 1, 1, 2, 1)" -> "Integer(2)_(1, 1, 1, 2, 1, 1)";
+"Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9'))_(1, 1, 1, 3)" -> "Integer(-1)_(1, 1, 1, 3, 0)";
+"Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9'))_(1, 1, 1, 3)" -> "Symbol('DENDRO_32')_(1, 1, 1, 3, 1)";
+"Mul(Integer(-1), Symbol('DENDRO_32'), Symbol('DENDRO_9'))_(1, 1, 1, 3)" -> "Symbol('DENDRO_9')_(1, 1, 1, 3, 2)";
+"Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31'))_(1, 1, 1, 4)" -> "Integer(-2)_(1, 1, 1, 4, 0)";
+"Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31'))_(1, 1, 1, 4)" -> "Symbol('At1[pp]')_(1, 1, 1, 4, 1)";
+"Mul(Integer(-2), Symbol('At1[pp]'), Symbol('DENDRO_31'))_(1, 1, 1, 4)" -> "Symbol('DENDRO_31')_(1, 1, 1, 4, 2)";
+"Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19'))_(1, 1, 1, 5)" -> "Symbol('At2[pp]')_(1, 1, 1, 5, 0)";
+"Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19'))_(1, 1, 1, 5)" -> "Symbol('DENDRO_13')_(1, 1, 1, 5, 1)";
+"Mul(Symbol('At2[pp]'), Symbol('DENDRO_13'), Symbol('DENDRO_19'))_(1, 1, 1, 5)" -> "Symbol('DENDRO_19')_(1, 1, 1, 5, 2)";
+"Mul(Integer(-1), Symbol('DENDRO_33'), Symbol('grad_1_alpha[pp]'))_(1, 2)" -> "Integer(-1)_(1, 2, 0)";
+"Mul(Integer(-1), Symbol('DENDRO_33'), Symbol('grad_1_alpha[pp]'))_(1, 2)" -> "Symbol('DENDRO_33')_(1, 2, 1)";
+"Mul(Integer(-1), Symbol('DENDRO_33'), Symbol('grad_1_alpha[pp]'))_(1, 2)" -> "Symbol('grad_1_alpha[pp]')_(1, 2, 2)";
+}

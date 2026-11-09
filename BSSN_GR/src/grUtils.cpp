@@ -11,6 +11,7 @@
 
 #include <mpi.h>
 
+#include <cmath>
 #include <filesystem>
 #include <tuple>
 
@@ -488,6 +489,37 @@ void readParamJSONFile(const char* fName, MPI_Comm comm) {
     TPID::par_m_minus    = TPID::target_M_minus;
     TPID::par_b          = parFile["TPID_PAR_B"];
 
+    // Tier 3.3: BSSN_TARGET_ORBITS → half-separation + BH X (leading-order PN).
+    // N ≈ (1/(32πν)) (a/M)^{5/2}  ⇒  a/M = (32 π ν N)^{2/5},  b = a/2.
+    // Masses from BH1/BH2; Y/Z/V/spin unchanged. Must re-solve TPID after.
+    if (parFile.find("BSSN_TARGET_ORBITS") != parFile.end())
+        bssn::BSSN_TARGET_ORBITS = parFile["BSSN_TARGET_ORBITS"];
+    if (bssn::BSSN_TARGET_ORBITS > 0.0) {
+        const double m1 = bssn::BH1.getBHMass();
+        const double m2 = bssn::BH2.getBHMass();
+        const double M  = m1 + m2;
+        const double nu = (m1 * m2) / (M * M);  // symmetric mass ratio
+        const double N  = bssn::BSSN_TARGET_ORBITS;
+        const double aM =
+            std::pow(32.0 * M_PI * nu * N, 2.0 / 5.0);  // a/M
+        const double a  = aM * M;
+        const double b  = 0.5 * a;  // half-separation (par_b)
+        TPID::par_b     = b;
+        // Rebuild BH coords on the x-axis about center_offset (filled below;
+        // use 0 until TPID offset is read — corrected after center_offset set).
+        bssn::BH1 = BH(m1, b, bssn::BH1.getBHCoordY(), bssn::BH1.getBHCoordZ(),
+                       bssn::BH1.getVx(), bssn::BH1.getVy(), bssn::BH1.getVz(),
+                       bssn::BH1.getBHSpin(), bssn::BH1.getBHSpinTheta(),
+                       bssn::BH1.getBHSpinPhi());
+        bssn::BH2 = BH(m2, -b, bssn::BH2.getBHCoordY(), bssn::BH2.getBHCoordZ(),
+                       bssn::BH2.getVx(), bssn::BH2.getVy(), bssn::BH2.getVz(),
+                       bssn::BH2.getBHSpin(), bssn::BH2.getBHSpinTheta(),
+                       bssn::BH2.getBHSpinPhi());
+        if (!rank)
+            std::cout << "[TARGET_ORBITS] N=" << N << " → a/M=" << aM
+                      << " par_b=" << b << " (re-solve TPID required)\n";
+    }
+
     TPID::par_P_plus[0] =
         bssn::BH1.getVx();  // parFile["TPID_PAR_P_PLUS"]["X"];
     TPID::par_P_plus[1] =
@@ -525,6 +557,22 @@ void readParamJSONFile(const char* fName, MPI_Comm comm) {
     TPID::center_offset[0] = parFile["TPID_CENTER_OFFSET"]["X"];
     TPID::center_offset[1] = parFile["TPID_CENTER_OFFSET"]["Y"];
     TPID::center_offset[2] = parFile["TPID_CENTER_OFFSET"]["Z"];
+
+    // Apply center_offset to TARGET_ORBITS BH placement (coords were provisional).
+    if (bssn::BSSN_TARGET_ORBITS > 0.0) {
+        const double b  = TPID::par_b;
+        const double ox = TPID::center_offset[0];
+        const double oy = TPID::center_offset[1];
+        const double oz = TPID::center_offset[2];
+        bssn::BH1 =
+            BH(bssn::BH1.getBHMass(), ox + b, oy, oz, bssn::BH1.getVx(),
+               bssn::BH1.getVy(), bssn::BH1.getVz(), bssn::BH1.getBHSpin(),
+               bssn::BH1.getBHSpinTheta(), bssn::BH1.getBHSpinPhi());
+        bssn::BH2 =
+            BH(bssn::BH2.getBHMass(), ox - b, oy, oz, bssn::BH2.getVx(),
+               bssn::BH2.getVy(), bssn::BH2.getVz(), bssn::BH2.getBHSpin(),
+               bssn::BH2.getBHSpinTheta(), bssn::BH2.getBHSpinPhi());
+    }
 
     TPID::initial_lapse_psi_exponent =
         parFile["TPID_INITIAL_LAPSE_PSI_EXPONENT"];

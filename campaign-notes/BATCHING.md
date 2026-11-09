@@ -37,4 +37,5 @@ Do **not** sell TLM as an acceleration story in FP64.
 
 - 56 regs/thread; **local-mem 84% of L1TEX sectors**; spill requests huge.
 - Occupancy **17%**, limited by **smem** (not regs). SM throughput 13.5%; ~7% FP64 peak; L1TEX scoreboard ~53% of issue stalls.
-- Dropping smem (PT_GMEM) **hurts** ETS (+51%). F32SU −8% ETS pending bit-id. Staging must cut *local spills / live ranges*, not delete the shared tile.
+- Dropping smem (PT_GMEM) **hurts** ETS (+51%). F32SU −8% ETS, not C_HAM bit-id. Staging must cut *local spills / live ranges*, not delete the shared tile.
+- **`__launch_bounds__(343,1)`** (was `,3`): smem already caps at 1 blk/SM; minBlocks=3 only starved regs. ETS **2.45→2.08 (−15%)**. Keep as prod. Defer-DD / scoped-restencil both **NO-GO**.

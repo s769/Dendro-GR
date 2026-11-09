@@ -421,6 +421,11 @@ extern double BSSN_SSL_H;
 extern double BSSN_BH_MERGE_TIME;
 extern unsigned int BSSN_BH_MERGE_STEP;
 
+/**@brief Tier 3.3: target orbits before merger (0 = disabled).
+ * When >0, overrides TPID_PAR_B and BSSN_BH{1,2}.X from a leading-order
+ * PN circular-inspiral estimate (see grUtils). Re-solve TPID after changing. */
+extern double BSSN_TARGET_ORBITS;
+
 // note ko derivs are not included
 #ifdef BSSN_USE_ADVECTIVE_DERIVS
 const unsigned int BSSN_NUM_DERIVS = 138 + 74;
