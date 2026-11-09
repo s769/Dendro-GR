@@ -30,5 +30,17 @@ inline void bssnrhs_tl_gauge_stub(TlWorkspace<T>& /*ws*/) {
   // Not implemented. See TIER3_TL_PLAN.md work package 1–2.
 }
 
+/**
+ * Linearization of radiative_bc_pt for a scalar (e.g. lapse).
+ * Background: f_rhs = -r^{-1}(x f_x + y f_y + z f_z + falloff*(f - asym))
+ * Tangent:    Jf    = -r^{-1}(x v_x + y v_y + z v_z + falloff*v)
+ * (geometry / falloff / asym fixed). Verified by tl_gauge_radbc_test.
+ */
+template <typename T>
+inline T radiative_bc_tl(T x, T y, T z, T vx, T vy, T vz, T v, T falloff) {
+  const T inv_r = T(1) / sqrt(x * x + y * y + z * z);
+  return -inv_r * (x * vx + y * vy + z * vz + falloff * v);
+}
+
 }  // namespace tl
 }  // namespace device

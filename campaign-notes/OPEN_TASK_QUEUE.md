@@ -11,5 +11,8 @@ Do **not** run filler ETS loops. When a GPU task finishes, start the next item t
 | 5 | Frozen-mesh unzip reuse (ensemble) | yes | **provisional** (KSHARE ~10–15% vs serial-K; gather still dominates) |
 | 6 | 2.1 staged algebra only after NCU says spills/regs matter | yes (ncu) | parked |
 | 7 | Coalesced hang gather (sort-by-cg) | yes | **NO-GO** (+78% ETS); park / try CG-scatter later |
+| 8 | Tier 3.1: radiative BC TL linearization | yes (short) | **done** (`tl_gauge_radbc_test` FACE+INTERIOR PASS) |
+| 9 | Tier 3.1: expand TL to shift (β⁰) interior | yes (short) | **done** (`tl_shift_beta_test` PASS) |
+| 10 | Tier 3.1: Γ-driver B⁰ TL (couples to α,β) | yes (short) | **next** |
 
 Automation: when a new idev goes `R`, run the **next queued GPU task**, not a keep-alive cycle.

@@ -36,10 +36,13 @@ Differentiated BSSN RHS: given background state `u` and K tangent vectors `v[k]`
 - **Harness v0 PASS:** `tl_gauge_fd_test` — host stencil, rel ~1e-8–1e-5.
 - **Harness v1 PASS:** `tl_gauge_device_test` — device `__pt_fused_*3` stencils, rel ~1e-8 on c125-022 (`tier0/next_gpu_task.log`).
 - **Harness v2 PASS:** `tl_gauge_q1_test` on real frozen-mesh q1 dump (`DENDRO_DUMP_TL_GAUGE`, blk=5 interior, nx=13, dx≈16.7). eps 1e-6/1e-7 GATE PASS (`tier0/tier31_q1_tl.log`).
+- **Harness v3 PASS:** `tl_gauge_radbc_test` — LEFT-face radiative BC TL vs FD (face + interior), eps 1e-6/1e-7 on c106 (`tier0/tier31_radbc.log`). Helper: `device::tl::radiative_bc_tl` in `bssn_tl_stub.cuh`.
+- **Harness v4 PASS:** `tl_shift_beta_test` — interior β⁰ TL (product rule on β·∇β⁰ + KO), eps 1e-6/1e-7 on c106 (`tier0/tier31_shift_beta.log`).
 
 ### Next coding slice
 
 1. ~~Port TL onto device PT stencils~~ **done**.
 2. ~~Wire one-block dump from frozen-mesh q1~~ **done**.
-3. Add radiative BC linearization (currently omitted).
-4. Expand beyond lapse (full gauge / BSSN TL) — codegen path.
+3. ~~Add radiative BC linearization~~ **done**.
+4. ~~Interior β⁰ TL~~ **done**.
+5. Γ-driver `B^i` / remaining gauge; then BSSN matter sector via codegen.
