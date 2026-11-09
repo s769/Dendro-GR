@@ -6,6 +6,6 @@ while true; do
   [[ -z "${st:-}" ]] && { echo "$(date -Is) job gone" >> "$LOG"; exit 0; }
   if [[ "$st" == RUNNING ]]; then
     echo "$(date -Is) start on $host" >> "$LOG"
-    ssh -o BatchMode=yes "$host" "$ENVS nohup bash $S > $HOME/Dendro-GR/campaign-notes/tier0/job_${J}.log 2>&1 &"; exit 0
+    ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$host" "$ENVS nohup bash $S > $HOME/Dendro-GR/campaign-notes/tier0/job_${J}.log 2>&1 &"; exit 0
   fi; sleep 20
 done
