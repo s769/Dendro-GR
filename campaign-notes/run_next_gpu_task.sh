@@ -8,14 +8,10 @@ source "${HOME}/Dendro-GR-notes/env_build_horizon.sh"
 LOG="${HOME}/Dendro-GR-notes/tier0/next_gpu_task.log"
 echo "host $(hostname) $(date -Is) next_gpu_task" | tee -a "${LOG}"
 
-if [[ -x "${HOME}/Dendro-GR-notes/run_tier31_Bdriver_test.sh" ]]; then
-  echo "==== queue#10 Bdriver TL ====" | tee -a "${LOG}"
-  bash "${HOME}/Dendro-GR-notes/run_tier31_Bdriver_test.sh" | tee -a "${LOG}"
-elif [[ -x "${HOME}/Dendro-GR-notes/run_tier31_shift_beta.sh" ]]; then
-  echo "==== re-gate shift beta ====" | tee -a "${LOG}"
-  bash "${HOME}/Dendro-GR-notes/run_tier31_shift_beta.sh" | tee -a "${LOG}"
-elif [[ -x "${HOME}/Dendro-GR-notes/run_tier31_radbc.sh" ]]; then
-  bash "${HOME}/Dendro-GR-notes/run_tier31_radbc.sh" | tee -a "${LOG}"
+if [[ ! -f "${HOME}/Dendro-GR-notes/tier0/tier32_richardson_q4.log" ]] || \
+   ! grep -q TIER32_RICHARDSON_Q4_DONE "${HOME}/Dendro-GR-notes/tier0/tier32_richardson_q4.log" 2>/dev/null; then
+  echo "==== queue#12 Tier 3.2 Richardson q4 ====" | tee -a "${LOG}"
+  bash "${HOME}/Dendro-GR-notes/run_tier32_richardson_q4.sh" | tee -a "${LOG}"
 else
-  echo "no GPU probe ready" | tee -a "${LOG}"
+  echo "no unfinished GPU probe ready" | tee -a "${LOG}"
 fi

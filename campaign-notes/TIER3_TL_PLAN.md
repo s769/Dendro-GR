@@ -39,6 +39,8 @@ Differentiated BSSN RHS: given background state `u` and K tangent vectors `v[k]`
 - **Harness v3 PASS:** `tl_gauge_radbc_test` — LEFT-face radiative BC TL vs FD (face + interior), eps 1e-6/1e-7 on c106 (`tier0/tier31_radbc.log`). Helper: `device::tl::radiative_bc_tl` in `bssn_tl_stub.cuh`.
 - **Harness v4 PASS:** `tl_shift_beta_test` — interior β⁰ TL (product rule on β·∇β⁰ + KO), eps 1e-6/1e-7 on c106 (`tier0/tier31_shift_beta.log`).
 - **Harness v5 PASS:** `tl_Bdriver_test` — Γ-driver B⁰ TL: δB⁰ (damping+advection+KO) and δβ⁰ coupling, eps 1e-6/1e-7 on c106 (`tier0/tier31_Bdriver.log`).
+- **Codegen scaffold PASS:** `CodeGen/bssn_tl_gauge.py` — symbolic TL of α/β⁰/B⁰/χ matches harness closed forms (7/7). Emit: `bssn_tl_gauge.inc.cuh`.
+- **Harness v6 PASS:** `tl_chi_test` — χ TL vs FD (δχ, δα, δK), eps 1e-6/1e-7 on c106 (`tier0/tier31_chi.log`).
 
 ### Next coding slice
 
@@ -47,4 +49,5 @@ Differentiated BSSN RHS: given background state `u` and K tangent vectors `v[k]`
 3. ~~Add radiative BC linearization~~ **done**.
 4. ~~Interior β⁰ TL~~ **done**.
 5. ~~Γ-driver B⁰ TL (δB⁰ + δβ⁰)~~ **done**.
-6. SymPy TL codegen scaffold (gauge → χ / gt); then full BSSN TL emit.
+6. ~~SymPy TL scaffold + χ device gate~~ **done**.
+7. Extend codegen to gt/At/K/Gt; emit fused TL kernel. Tier 3.2 Richardson q4 in parallel on GPU.
