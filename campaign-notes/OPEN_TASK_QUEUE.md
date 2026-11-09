@@ -19,7 +19,8 @@ Do **not** run filler ETS loops. When a GPU task finishes, start the next item t
 | 13 | Tier 3.1: SymPy TL gt00 scaffold + device gate | mixed | **done** |
 | 14 | Tier 3.1: full tensor Lie gt00 (δgt0/δgt1/δα/δAt0) | mixed | **done** (`bssn_tl_gauge` 11/11; `tl_gt_test` PASS) |
 | 15 | Tier 3.1: K TL (product/KO; lap(α) deferred) | yes (short) | **done** (`tl_K_test` PASS) |
-| 16 | Tier 3.1: At/Gt TL + lap(α) in K; fused emit | mixed | **next** |
+| 16 | Tier 3.1: At00 algebraic+Lie TL (Ricci deferred) | yes (short) | **done** (`tl_At_test` PASS) |
+| 16b | Tier 3.1: Gt TL + Ricci/lap pieces; fused emit | mixed | **next** |
 | 17 | Tier 3.3: sep-cost scout (reused TPID; provisional) | yes | **provisional** (`TIER33_ORBITS.md`) |
 | 18 | Tier 3.3: re-TPID per sep / TARGET_ORBITS → fair q8 cost | mixed | **next** |
 
