@@ -35,3 +35,11 @@ Automation: when a new idev goes `R`, run the **next queued GPU task**, not a ke
 | Tier 3.3 q8 orbits-vs-cost | not started |
 | fine-resolution waveform FD | not started |
 | GPU-vs-CPU long-run physics comparison with BH_WAMR | not started |
+
+## 2026-11-09 late: queued, awaiting nodes (cluster queue congested ~1h)
+Auto-launch armed (`watch_batch.sh` -> `run_next_batch.sh`, logs `tier0/watch_batch.log`, `tier0/batch.done`):
+1. frozen-mesh CPU vs GPU physics (`run_physcheck.sh cpu0 6.4`) — see PHYSICS_CHECK.md
+2. OpenMP thread sweep at production depth, OMP=4/8/16/36 (`prod_TS*`): init_grid, remesh Mesh ctor, extraction constraint loop scaling; plus eager-vs-lazy host unzip vectors (`TS8E`)
+3. TwoPunctures cold vs warm start (`run_tp_warm.sh`; `DENDRO_TPID_WARM_START=<fiducial *_tpid_sol.bin>`), thread scaling 8 vs 36 — a cold TP solve at 4 threads is ~475 s/member (3 Newton iterations from |F|=5.5e-3); warm start expected ~1 iteration.
+Code built but UNTESTED: TPID warm start; lazy host unzip vectors after remesh (`DENDRO_EAGER_HOST_UNZIP=1` restores eager).
+Then: fine-resolution waveform FD (needs recorded fine fiducial + 4 replays; est >1 h of node time).
