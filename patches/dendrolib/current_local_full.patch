@@ -762,18 +762,19 @@ index b3a068f..c7bbf09 100644
      this->m_elem_send_sm         = nullptr;
      this->m_elem_recv_sm         = nullptr;
 diff --git a/ODE/include/ctx.h b/ODE/include/ctx.h
-index ac7d0c2..e6da357 100644
+index ac7d0c2..bf950cf 100644
 --- a/ODE/include/ctx.h
 +++ b/ODE/include/ctx.h
-@@ -10,6 +10,7 @@
+@@ -10,6 +10,8 @@
   *
   */
  #pragma once
++#include <chrono>
 +#include <cstdlib>
  #include <functional>
  #include <iostream>
  #include <vector>
-@@ -584,6 +585,137 @@ void Ctx<DerivedCtx, T, I>::unzip(ot::DVector<T, I>& in, ot::DVector<T, I>& out,
+@@ -584,6 +586,137 @@ void Ctx<DerivedCtx, T, I>::unzip(ot::DVector<T, I>& in, ot::DVector<T, I>& out,
          device::MeshGPU* dptr_mesh = this->get_meshgpu_device_ptr();
          device::MeshGPU* mesh_gpu  = this->get_meshgpu_host_handle();
  
@@ -911,7 +912,7 @@ index ac7d0c2..e6da357 100644
          for (unsigned int i = 0; i < async_k; i++) {
              const unsigned int v_begin  = ((i * dof) / async_k);
              const unsigned int v_end    = (((i + 1) * dof) / async_k);
-@@ -607,11 +739,24 @@ void Ctx<DerivedCtx, T, I>::unzip(ot::DVector<T, I>& in, ot::DVector<T, I>& out,
+@@ -607,11 +740,24 @@ void Ctx<DerivedCtx, T, I>::unzip(ot::DVector<T, I>& in, ot::DVector<T, I>& out,
              mesh_gpu->unzip_cg<DEVICE_REAL, cudaStream_t>(
                  m_uiMesh, dptr_mesh, in_ptr + v_begin * sz_per_dof_zip,
                  out_ptr + v_begin * sz_per_dof_uzip, batch_sz, 0);
@@ -937,6 +938,57 @@ index ac7d0c2..e6da357 100644
  #endif
      }
  
+@@ -809,7 +955,15 @@ int Ctx<DerivedCtx, T, I>::remesh_and_gridtransfer(unsigned int grain_sz,
+                                                    unsigned int sf_k) {
+     dendro::logger::debug(dendro::logger::Scope{"CTX"},
+                           "Now doing full remesh and grid transfer!");
++    static const bool tm_on = std::getenv("DENDRO_TIME_REMESH") != nullptr;
++    auto tmn = []() {
++        return std::chrono::duration<double>(
++                   std::chrono::steady_clock::now().time_since_epoch())
++            .count();
++    };
++    const double tr0       = tm_on ? tmn() : 0.0;
+     ot::Mesh* newMesh      = remesh(grain_sz, ld_tol, sf_k);
++    const double tr1       = tm_on ? tmn() : 0.0;
+ 
+     DendroIntL oldElements = m_uiMesh->getNumLocalMeshElements();
+     DendroIntL newElements = newMesh->getNumLocalMeshElements();
+@@ -827,6 +981,7 @@ int Ctx<DerivedCtx, T, I>::remesh_and_gridtransfer(unsigned int grain_sz,
+         m_uiTinfo._m_uiStep, m_uiTinfo._m_uiT, oldElements_g, newElements_g);
+ 
+     this->grid_transfer(newMesh);
++    const double tr2 = tm_on ? tmn() : 0.0;
+ 
+     std::swap(newMesh, m_uiMesh);
+     delete newMesh;
+@@ -835,9 +990,24 @@ int Ctx<DerivedCtx, T, I>::remesh_and_gridtransfer(unsigned int grain_sz,
+     device::MeshGPU*& dptr_mesh = this->get_meshgpu_device_ptr();
+     device::MeshGPU* mesh_gpu   = this->get_meshgpu_host_handle();
+ 
+-    mesh_gpu->dealloc_mesh_on_device(dptr_mesh);
+-    dptr_mesh = mesh_gpu->alloc_mesh_on_device(m_uiMesh);
++    // grid_transfer() already rebuilt the device mesh for the new mesh; the
++    // second rebuild is redundant (DENDRO_REMESH_DOUBLE_UPLOAD=1 restores it).
++    static const bool dbl = []() {
++        const char* e = std::getenv("DENDRO_REMESH_DOUBLE_UPLOAD");
++        return e && e[0] == '1' && e[1] == '\0';
++    }();
++    if (dbl) {
++        mesh_gpu->dealloc_mesh_on_device(dptr_mesh);
++        dptr_mesh = mesh_gpu->alloc_mesh_on_device(m_uiMesh);
++    }
+ #endif
++    if (tm_on) {
++        const double tr3 = tmn();
++        if (!m_uiMesh->getMPIRankGlobal())
++            printf("[remesh-phases] ReMesh=%.3fs grid_transfer(incl device mesh+vec+h2d)=%.3fs "
++                   "swap+realloc=%.3fs total=%.3fs\n",
++                   tr1 - tr0, tr2 - tr1, tr3 - tr2, tr3 - tr0);
++    }
+ 
+     m_uiIsETSSynced = false;
+     dendro::logger::info(dendro::logger::Scope{"CTX"},
 diff --git a/include/mesh_gpu.h b/include/mesh_gpu.h
 index 8e711bd..73138fd 100644
 --- a/include/mesh_gpu.h
