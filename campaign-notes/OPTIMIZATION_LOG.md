@@ -46,3 +46,25 @@ Results (extraction every 4 steps, `DENDRO_TIME_EXTRACT=1`):
 Production relevance (extraction every 50-100 steps): baseline cost ~1.2 s/extraction at q8 mesh size vs ~0.1 s/step => ~12% overhead at freq 100, ~1% after; larger meshes scale worse for baseline.
 Recommended inversion-ensemble settings: `DENDRO_GW_SHELL_ONLY=1`, `OMP_NUM_THREADS=8..16` per rank with cores unbound, cache on (default). Use the default (full) path when constraint norms are needed.
 Data: `tier0/*` logs from `run_extract_ab3.sh`, `run_extract_q8.sh`, `run_cache_verify.sh` (744 cache-vs-original checks, 0 mismatches after the signature fix).
+
+## Production-depth q8 profile (2026-11-09) — MEASURED
+Setup: `pars/q8.par.toml` (maxdepth 17, remesh test /50, GW extract /100, checkpoint /100) with TPID grid set to the reusable 60^3 solution and the same bare masses; 4 GPUs (one GB200 node),
+CUDA-aware MPI, PT_ASYNC + boundary overlap. Init mesh 18,656 elements (4x the meshprobe), initial lmax 11 (dt 1.6e-2) refining to dt 1.0e-3 by step 0; run to t=1.8 = 1,729 steps.
+Initial-mesh convergence (10 WAMR iterations + TPID load) takes ~9 min wall before step 0 (per simulation!). Script: `run_prod_q8.sh`; logs `tier0/prod_*.out`; analysis `analyze_prod_steps.py`.
+
+| run | cadences on | ETS (s) | derived cost |
+|-----|-------------|--------:|-------------|
+| D | none (pure stepping) | 75.9 | **0.044 s/step** (47% of A) |
+| F | checkpoint only | 81.1 | checkpoints +5.3 s (18 writes, 0.3 s each; 3%) |
+| E | remesh test only | 117.6 | **remesh *test* +41.7 s (34 tests, 1.2 s each; 26% of A)** — no remesh actually triggered in this window |
+| C | remesh test + ckpt | 130.7 | |
+| A | all, original extraction | 159.8 | extraction +29 s (timer: 35.5 s; 15 calls, 2.4 s each; 18-22%) |
+| B | all, **new extraction** (`DENDRO_GW_SHELL_ONLY=1`, cache, OMP=8) | 132.0 | extraction ~1.3 s (**-95%**); total -17% vs A |
+
+Takeaways:
+1. At production depth the host-side remesh *test* (`is_remesh()`: D2H of all state + host unzip + host WAMR every 50 steps) costs as much as 40% of stepping — the next biggest non-stepping cost. It is skipped in frozen-mesh replay mode, so ensemble members avoid it; the recording fiducial and non-frozen production runs pay it. A device unzip + device wavelet/refinement-flag kernel (same structure as the extraction fix) is the natural next target.
+2. Extraction fix removes ~18% of the run; with replay (no remesh test), checkpoints off, and shell extraction an ensemble member runs at ~0.044 + ~0.001 s/step vs 0.092 s/step for production defaults here => **~2.1x per-member** in this window.
+3. Checkpoints are cheap (3%); keep production cadence but turn them off for ensemble members.
+4. Earlier meshprobe profiles (no remesh/extraction/ckpt, 4x smaller mesh, depth 15) describe pure stepping only.
+5. ~9 min of per-simulation initial-mesh convergence precedes step 0; the frozen-mesh replay of init refinement (Tier 1.1 fix) lets perturbed members skip it. Not yet measured end-to-end.
+Caveat: window is the first 1,729 steps of a ~4M-step run; AMR refines further later (more elements, remesh events actually trigger and cost extra), so shares will shift.

@@ -56,3 +56,7 @@ Paper strong-scaling efficiency ~0.89 @4 GPU, ~0.64 @8. Extrapolating loosely to
 2. Remove hybrid double-launch on faces (port one-sided FD) — more face work at coarse/fine boundaries  
 3. Remesh / unzip cost (not yet attacked) — grows with AMR depth  
 4. Multi-GPU per Horizon node (4×GB200) — paper used 1 GPU/node class; we have 4/node to exploit
+
+## MEASURED (2026-11-09, GB200, 4 GPU, production-depth q8, first 1,729 steps) — supersedes extrapolated step cost above
+Pure stepping 0.044 s/step (mesh 18.7k elements, dt 1.0e-3). With production cadences and original code: 0.092 s/step (remesh test 26%, extraction 18%, checkpoints 3%).
+After extraction fix: 0.077 s/step. Per-step cost grows with mesh size and shrinking dt later in the run, so this is NOT yet a full-run wall-time estimate. Details: `OPTIMIZATION_LOG.md`.
