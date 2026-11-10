@@ -51,3 +51,20 @@ Harness bug found: run_physcheck.sh appended missing keys inside [AEH_PARAMS]; f
 
 ## Production-depth timing after the fixes (q8, T=0.3, 36 OMP/rank, single samples)
 old physics: startup 43 s, ETS 28.5 s | new defaults: 61 s, 30.0 s (+5%) | new + BH_TRACK_FREQ=1: 57 s, 31.2 s (+4%).
+
+## CAHD on the GPU (implemented 2026-11-10; production par files set BSSN_CAHD_C=0.06)
+Adaptive CPU (BH_WAMR, remesh/10) with CAHD vs without, t<=14: psi4 l2m2 2.5e-3, l3m2 5.2e-3 rel-to-max, C_HAM +14%,
+BH sep 2.8e-3 -> CAHD matters and grows with time (7.5e-5 / 2.1e-4 at t=6.4), so it is implemented, default ON when C!=0
+(`DENDRO_GPU_CAHD=0` = original-GPU behaviour, with a warning).
+Implementation: cuda/gen/gen_cahd.py generates the device expression from src/bssneqs_SSL_HD_dxsq.cpp (identical by
+construction: chi_rhs += -C*dx_i^2*(chi/12)*B/(dt*(10 dx_i^2+1)), dx_i = min block spacing, dt = BSSN_RK45_TIME_STEP_SIZE;
+skipped on the physical-boundary face layers where the CPU radiative BC overwrites the RHS).
+Pass 1 (`cahd_derivs`) reuses the stock per-variable derivative device code for chi, Gt, gt only (72 arrays, batched
+workspace of 128 blocks); pass 2 (`cahd_chi_rhs`) evaluates the term.
+Bug found/fixed during verification: derivative CTAs were selected with wrong variable IDs (assumed gt at 3-8, Gt at 18-20;
+actual grDef.h layout: chi=1, Gt=3-5, beta=6-8, B=9-11, gt=12-17, At=18-23). Stage 1 hid it because the initial data is
+conformally flat (all gt/Gt derivatives are zero); stage 2 exposed it (chi RHS off by 1e-5). Lesson: verify at stage >=2 /
+evolved state, not only at step 0.
+Verified (CPU vs GPU, identical stage-2 inputs 1e-15): stage-2 chi RHS 2.3e-14, state after 1/2/5 steps 1.5e-11.
+Note: the stock GPU RHS kernels hard-code lambda={1,1,1,1}, lambda_f={1,0}; production par files use the same values
+(a different parameter file would silently diverge).
