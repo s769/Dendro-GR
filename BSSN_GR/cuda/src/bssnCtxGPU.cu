@@ -399,6 +399,15 @@ int BSSNCtxGPU::init_grid() {
                      &mm_adm, &E, &J1, &J2, &J3);
     }
 
+    // Parallel initial-data evaluation (host, ~10 min/simulation serially at
+    // production depth). DENDRO_INIT_OMP=0 restores the serial loop below.
+    static const bool init_omp = []() {
+        const char* e = std::getenv("DENDRO_INIT_OMP");
+        return !(e && e[0] == '0');
+    }();
+    if (init_omp) {
+        bssn::initialDataOnMeshOMP(m_uiMesh, zipIn);
+    } else
     for (unsigned int elem = m_uiMesh->getElementLocalBegin();
          elem < m_uiMesh->getElementLocalEnd(); elem++) {
         DendroScalar var[bssn::BSSN_NUM_VARS];

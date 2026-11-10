@@ -8,6 +8,7 @@
 
 #include "bssnCtx.h"
 #include "parameters.h"
+#include "TwoPunctures.h"
 
 namespace bssn {
 
@@ -1658,6 +1659,56 @@ bool addRemeshWAMR_lmax(
     MPI_Allreduce(&isOctChange, &isOctChange_g, 1, MPI_CXX_BOOL, MPI_LOR,
                   pMesh->getMPIGlobalCommunicator());
     return isOctChange_g;
+}
+
+
+void initialDataOnMeshOMP(ot::Mesh* pMesh, double** zipIn) {
+    const ot::TreeNode* pNodes  = &(*(pMesh->getAllElements().begin()));
+    const unsigned int eleOrder = pMesh->getElementOrder();
+    const unsigned int* e2n_cg  = &(*(pMesh->getE2NMapping().begin()));
+    const unsigned int* e2n_dg  = &(*(pMesh->getE2NMapping_DG().begin()));
+    const unsigned int nPe      = pMesh->getNumNodesPerElement();
+    const unsigned int nodeLocalBegin = pMesh->getNodeLocalBegin();
+    const unsigned int nodeLocalEnd   = pMesh->getNodeLocalEnd();
+    const unsigned int eB = pMesh->getElementLocalBegin();
+    const unsigned int eE = pMesh->getElementLocalEnd();
+#pragma omp parallel
+    {
+        double var[bssn::BSSN_NUM_VARS];
+        double mp, mm, mp_adm, mm_adm, E, J1, J2, J3;
+#pragma omp for schedule(dynamic, 8)
+        for (long el = (long)eB; el < (long)eE; el++) {
+            const unsigned int elem = (unsigned int)el;
+            for (unsigned int k = 0; k < (eleOrder + 1); k++)
+                for (unsigned int j = 0; j < (eleOrder + 1); j++)
+                    for (unsigned int i = 0; i < (eleOrder + 1); i++) {
+                        const unsigned int idx =
+                            k * (eleOrder + 1) * (eleOrder + 1) +
+                            j * (eleOrder + 1) + i;
+                        const unsigned int nodeLookUp_CG = e2n_cg[elem * nPe + idx];
+                        if (nodeLookUp_CG >= nodeLocalBegin &&
+                            nodeLookUp_CG < nodeLocalEnd) {
+                            const unsigned int nodeLookUp_DG = e2n_dg[elem * nPe + idx];
+                            unsigned int ownerID, ii_x, jj_y, kk_z;
+                            pMesh->dg2eijk(nodeLookUp_DG, ownerID, ii_x, jj_y, kk_z);
+                            const double len =
+                                (double)(1u << (m_uiMaxDepth - pNodes[ownerID].getLevel()));
+                            const double x = pNodes[ownerID].getX() + ii_x * (len / eleOrder);
+                            const double y = pNodes[ownerID].getY() + jj_y * (len / eleOrder);
+                            const double z = pNodes[ownerID].getZ() + kk_z * (len / eleOrder);
+                            if (bssn::BSSN_ID_TYPE == 0) {
+                                TwoPunctures(GRIDX_TO_X(x), GRIDY_TO_Y(y), GRIDZ_TO_Z(z),
+                                             var, &mp, &mm, &mp_adm, &mm_adm, &E, &J1,
+                                             &J2, &J3);
+                            } else {
+                                initialDataFunctionWrapper(x, y, z, var);
+                            }
+                            for (unsigned int v = 0; v < bssn::BSSN_NUM_VARS; v++)
+                                zipIn[v][nodeLookUp_CG] = var[v];
+                        }
+                    }
+        }
+    }
 }
 
 }  // end of namespace bssn

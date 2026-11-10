@@ -21,3 +21,17 @@ Do **not** run filler ETS loops. When a GPU task finishes, start the next item t
 | T_fp32 | FP32-tangent plateau vs Tier 1.5 FD plot | yes | later (after B2; not first) |
 
 Automation: when a new idev goes `R`, run the **next queued GPU task**, not a keep-alive cycle.
+
+## Update 2026-11-09 (campaign continuation)
+| item | status |
+|------|--------|
+| B2 K/CTA interleave | **closed** (measured ~1.0-1.15x at production block counts; see BATCHING.md) |
+| B3 pack K ghosts | closed (no-go at these sizes) |
+| Remesh: GPU BH_WAMR + device WAMR + block-setup O(N^2) fix | **done, default ON** (adaptive production-depth q8 380.8 -> 190.4 s) |
+| Extraction (shell-only, OMP, cached sampler) | done (opt-in `DENDRO_GW_SHELL_ONLY=1`) |
+| init_grid initial-data evaluation (~580 s/simulation host, single thread) | OpenMP version implemented (`DENDRO_INIT_OMP`, default on), **timing pending a node** |
+| var-batched unzip CTA | idea, not started |
+| FP32-tangent plateau test | later |
+| Tier 3.3 q8 orbits-vs-cost | not started |
+| fine-resolution waveform FD | not started |
+| GPU-vs-CPU long-run physics comparison with BH_WAMR | not started |

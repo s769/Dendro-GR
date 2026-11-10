@@ -111,6 +111,14 @@ bool addRemeshWAMR_lmax(
     std::function<double(double, double, double, double*)> wavelet_tol,
     double amr_coarse_fac);
 
+/**
+ * @brief evaluate the initial data at every local CG node of @p pMesh into the
+ * zipped evolution variables (OpenMP over elements; TwoPunctures evaluation is
+ * read-only after its first collective call, which the caller must have made).
+ * Equivalent to the serial loop in BSSNCtx*::init_grid.
+ */
+void initialDataOnMeshOMP(ot::Mesh* pMesh, double** zipIn);
+
 /** per-local-element flag: element is a domain-boundary octant. */
 void waveletBoundaryOctants(ot::Mesh* pMesh, std::vector<unsigned char>& isBdy);
 
