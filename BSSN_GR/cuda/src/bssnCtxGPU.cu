@@ -1709,6 +1709,34 @@ int BSSNCtxGPU::rhs(DVec* in, DVec* out, unsigned int sz, DendroScalar time) {
                        bssn::BSSN_CAHD_C, bssn::BSSN_RK45_TIME_STEP_SIZE, cn);
     }
     {
+        // The generated CUDA RHS kernels hard-code lambda, lambda_f and the RIT eta
+        // function constants; the CPU reads them from the parameters. Refuse to
+        // run a different system silently (DENDRO_GPU_PARAM_CHECK=0 skips).
+        static bool checked = false;
+        if (!checked) {
+            checked = true;
+            bool ok = true;
+            for (int q = 0; q < 4; q++) ok = ok && (bssn::BSSN_LAMBDA[q] == 1);
+            ok = ok && bssn::BSSN_LAMBDA_F[0] == 1.0 && bssn::BSSN_LAMBDA_F[1] == 0.0;
+            ok = ok && bssn::RIT_ETA_OUTER == 0.25 && bssn::RIT_ETA_CENTRAL == 2.0 &&
+                 bssn::RIT_ETA_WIDTH == 40.0;
+            const char* skip = std::getenv("DENDRO_GPU_PARAM_CHECK");
+            if (!ok && !(skip && skip[0] == '0')) {
+                if (!m_uiMesh->getMPIRankGlobal())
+                    fprintf(stderr,
+                            "[bssn-gpu] FATAL: the CUDA RHS kernels hard-code BSSN_LAMBDA=[1,1,1,1], "
+                            "BSSN_LAMBDA_F=[1,0], RIT_ETA_OUTER/CENTRAL/WIDTH=0.25/2/40 but the "
+                            "parameters differ (got lambda=[%g,%g,%g,%g], lambda_f=[%g,%g], "
+                            "eta=%g/%g/%g). Set DENDRO_GPU_PARAM_CHECK=0 to override.\n",
+                            (double)bssn::BSSN_LAMBDA[0], (double)bssn::BSSN_LAMBDA[1],
+                            (double)bssn::BSSN_LAMBDA[2], (double)bssn::BSSN_LAMBDA[3],
+                            bssn::BSSN_LAMBDA_F[0], bssn::BSSN_LAMBDA_F[1],
+                            bssn::RIT_ETA_OUTER, bssn::RIT_ETA_CENTRAL, bssn::RIT_ETA_WIDTH);
+                MPI_Abort(MPI_COMM_WORLD, 1);
+            }
+        }
+    }
+    {
         // CAKO is not implemented on the GPU (nor in the original port).
         static bool warned = false;
         if (!warned) {

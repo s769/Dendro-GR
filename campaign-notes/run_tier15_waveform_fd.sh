@@ -5,7 +5,7 @@
 set -uo pipefail
 source /opt/apps/lmod/lmod/init/bash 2>/dev/null || true
 source "${HOME}/Dendro-GR/campaign-notes/env_build_horizon.sh" >/dev/null
-unset CUDA_VISIBLE_DEVICES; export OMP_NUM_THREADS=1
+unset CUDA_VISIBLE_DEVICES; export OMP_NUM_THREADS="${OMPT:-1}"
 RES="${RES:-coarse}"; TEND="${TEND:-60}"; RFREQ="${RFREQ:-20}"
 RADII="${RADII:-[20.0, 25.0, 30.0, 35.0, 40.0, 45.0]}"; EPSS="${EPSS:-0.001 0.003}"
 BIN="${DENDRO_BUILD}/BSSN_GR/bssnSolverCUDA"
@@ -39,7 +39,7 @@ runit() { # tag gpu mode
   local d="${OUT}/$1"
   ( cd "$d"; local s=$(date +%s)
     if [[ "$3" == record ]]; then E="DENDRO_MESH_RECORD=${REC}"; else E="DENDRO_MESH_REPLAY=${REC}"; fi
-    CUDA_VISIBLE_DEVICES=$2 mpirun -np 1 env DENDRO_RHS_PT_ASYNC=1 $E "$BIN" local.par.toml 1 > run.log 2>&1
+    CUDA_VISIBLE_DEVICES=$2 mpirun -np 1 env OMP_NUM_THREADS=${OMPT:-1} DENDRO_RHS_PT_ASYNC=1 ${XENV:-} $E "$BIN" local.par.toml 1 > run.log 2>&1
     echo "$1 gpu$2 wall=$(( $(date +%s)-s ))s $(grep -E 'ETS time' run.log | tail -1)" ) 
 }
 echo "RES=$RES TEND=$TEND RFREQ=$RFREQ RADII=$RADII EPSS=$EPSS $(date -Is) $(hostname)"
