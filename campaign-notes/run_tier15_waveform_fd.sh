@@ -24,6 +24,13 @@ t=re.sub(r"BSSN_RK_TIME_END = [0-9.eE+-]+", "BSSN_RK_TIME_END = %s" % float("${T
 t=re.sub(r"BSSN_REMESH_TEST_FREQ = [0-9]+", "BSSN_REMESH_TEST_FREQ = ${RFREQ}", t)
 t=re.sub(r"BSSN_GW_EXTRACT_FREQ = [0-9]+", "BSSN_GW_EXTRACT_FREQ = ${GWFREQ:-4}", t)
 t=re.sub(r"BSSN_GW_RADAII = \[[^\]]*\]", "BSSN_GW_RADAII = ${RADII}", t)
+import os
+for kv in [x for x in os.environ.get("PAR_OVR","").split(";") if x]:
+    k,v=kv.split("=",1)
+    t,n=re.subn(r"^"+k+r" = .*$",k+" = "+v,t,flags=re.M)
+    if n==0:
+        m=re.search(r"^\[",t,flags=re.M); ins=k+" = "+v+"\n\n"
+        t=(t[:m.start()]+ins+t[m.start():]) if m else t+"\n"+ins
 p.write_text(t)
 PY
   ln -sfn "$TPID" "$d/rit_q1_tpid_sol.bin"

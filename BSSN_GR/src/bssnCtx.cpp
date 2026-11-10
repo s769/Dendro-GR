@@ -116,10 +116,13 @@ int BSSNCtx::rhs(DVec* in, DVec* out, unsigned int sz, DendroScalar time) {
 
     {
         std::string dsd;
-        if (bssn::dump_rhs_wanted(m_uiTinfo._m_uiStep, dsd))
+        unsigned int dsk = 1;
+        if (bssn::dump_rhs_wanted(m_uiTinfo._m_uiStep, dsd, &dsk)) {
+            bssn::dump_unzip(m_uiMesh, m_var[CPU_EV_UZ_IN].get_vec_ptr(), bssn::BSSN_NUM_VARS, (unsigned)m_uiTinfo._m_uiStep + 5000 + 100 * (dsk - 1), dsd);
             bssn::dump_unzip(m_uiMesh, m_var[CPU_EV_UZ_OUT].get_vec_ptr(),
                              bssn::BSSN_NUM_VARS,
-                             (unsigned)m_uiTinfo._m_uiStep + 1000, dsd);
+                             (unsigned)m_uiTinfo._m_uiStep + 1000 + 100 * (dsk - 1), dsd);
+        }
     }
     this->zip(m_var[CPU_EV_UZ_OUT], *out);
 

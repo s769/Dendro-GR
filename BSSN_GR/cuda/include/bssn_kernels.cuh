@@ -1114,6 +1114,94 @@ GLOBAL_FUNC __launch_bounds__(256, 2) void compute_all_derivs(
 #include "../scripts/compute_bssnrhs_evar_derivs2.cuh"
 }
 
+// ---------------------------------------------------------------------------
+// CAHD (constraint-adjusted Hamiltonian damping) -- see gen/gen_cahd.py.
+// Pass 1 computes only the derivative arrays the CAHD bracket needs (chi, gt,
+// Gt) into the batched workspace using the same per-variable derivative code
+// as the stock two-kernel path (mixed derivatives included, one-sided stencils
+// at physical boundaries); other members of BSSN_EVAR_DERIVS point at a dummy
+// scratch buffer. Pass 2 evaluates the CPU's CAHD term pointwise.
+// ---------------------------------------------------------------------------
+template <int pw, unsigned int nx, int pencil_sz>
+GLOBAL_FUNC __launch_bounds__(256, 2) void cahd_derivs(
+    const DEVICE_REAL* const dptr_u, BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
+    BSSN_EVAR_DERIVS* const dptr_deriv_evars, DEVICE_UINT szpdof_uz) {
+    SHARED_MEM DEVICE_REAL su[(pencil_sz) * (pencil_sz) * (pencil_sz)];
+    const DEVICE_INT Z_ID = GPUDevice::block_id_x();
+    const DEVICE_INT V_ID = GPUDevice::block_id_y();
+    if (Z_ID >= nblocks) return;
+    // VAR layout (grDef.h): chi = 1, Gt0..Gt2 = 3..5, SYMGT0..5 = 12..17
+    if (!(V_ID == bssn::VAR::U_CHI ||
+          (V_ID >= bssn::VAR::U_GT0 && V_ID <= bssn::VAR::U_GT2) ||
+          (V_ID >= bssn::VAR::U_SYMGT0 && V_ID <= bssn::VAR::U_SYMGT5)))
+        return;
+    const DEVICE_INT sz_per_dof                      = szpdof_uz;
+    const int pencils                                = pencil_sz;
+    BSSN_EVAR_DERIVS* __restrict__ const deriv_evars = dptr_deriv_evars;
+    BlockGPU3D c_blk                                 = dptr_blk[Z_ID];
+    const BlockGPU3D* __restrict__ const blk         = &c_blk;
+    const DEVICE_UINT offset                         = blk->m_offset;
+    const DEVICE_REAL* __restrict__ const var_in =
+        &dptr_u[V_ID * sz_per_dof + offset];
+    const DEVICE_UINT BLK_SZ = nx * nx * nx;
+
+#include "../scripts/compute_bssnrhs_evar_derivs2.cuh"
+}
+
+#include "cahd_gen.inc.cuh"
+
+template <int pw, unsigned int nx>
+GLOBAL_FUNC __launch_bounds__(343) void cahd_chi_rhs(
+    DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
+    const BSSN_EVAR_DERIVS* const ws, DEVICE_UINT szpdof_uz, DEVICE_REAL cahd_C,
+    DEVICE_REAL dt) {
+    const DEVICE_INT Z_ID = GPUDevice::block_id_x();
+    if (Z_ID >= nblocks) return;
+    constexpr unsigned int NI = nx - 2 * pw;  // interior points per direction
+    const unsigned int tid    = GPUDevice::thread_id_x();
+    if (tid >= NI * NI * NI) return;
+    const unsigned int i = pw + tid % NI;
+    const unsigned int j = pw + (tid / NI) % NI;
+    const unsigned int k = pw + tid / (NI * NI);
+
+    const BlockGPU3D blk       = dptr_blk[Z_ID];
+    const DEVICE_UINT offset   = blk.m_offset;
+    const DEVICE_UINT BLK_SZ   = nx * nx * nx;
+    const DEVICE_UINT sz_per_dof = szpdof_uz;
+    const DEVICE_UINT pp       = k * nx * nx + j * nx + i;
+
+    // the CPU radiative boundary condition overwrites the RHS on these face
+    // layers, so the CPU never applies the CAHD term there
+    const DEVICE_UINT bf = blk.m_bflag;
+    if (bf != 0) {
+        if ((bf & (1u << OCT_DIR_LEFT)) && i == (unsigned)pw) return;
+        if ((bf & (1u << OCT_DIR_RIGHT)) && i == nx - pw - 1) return;
+        if ((bf & (1u << OCT_DIR_DOWN)) && j == (unsigned)pw) return;
+        if ((bf & (1u << OCT_DIR_UP)) && j == nx - pw - 1) return;
+        if ((bf & (1u << OCT_DIR_BACK)) && k == (unsigned)pw) return;
+        if ((bf & (1u << OCT_DIR_FRONT)) && k == nx - pw - 1) return;
+    }
+
+#define CAHD_DECL_FIELD(NAME, VID) \
+    const DEVICE_REAL* const NAME = &dptr_u[bssn::VAR::VID * sz_per_dof + offset];
+    CAHD_FIELD_LIST(CAHD_DECL_FIELD)
+#undef CAHD_DECL_FIELD
+#define CAHD_DECL_DERIV(NAME) const DEVICE_REAL* const NAME = ws->NAME + Z_ID * BLK_SZ;
+    CAHD_DERIV_LIST(CAHD_DECL_DERIV)
+#undef CAHD_DECL_DERIV
+
+    const DEVICE_REAL dx_i = fmin(fmin(blk.m_dx[0], blk.m_dx[1]), blk.m_dx[2]);
+    const DEVICE_REAL DENDRO_18 = dx_i * dx_i;  // dx_i^2 (as in the CPU RHS)
+
+    CAHD_BRACKET_BODY
+
+    const DEVICE_REAL DENDRO_640 = (1.0 / 12.0) * chi[pp];
+    dptr_Fu[bssn::VAR::U_CHI * sz_per_dof + offset + pp] +=
+        -cahd_C * DENDRO_18 * DENDRO_640 * cahd_bracket /
+        (dt * (10 * DENDRO_18 + 1));
+}
+
 template <int pw, int nx, int pencil_sz>
 GLOBAL_FUNC __launch_bounds__(64) void eval_rhs2(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,

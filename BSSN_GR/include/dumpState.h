@@ -65,19 +65,28 @@ inline void dump_unzip(const ot::Mesh* mesh, const double* unz, unsigned int nv,
     fwrite(unz, sizeof(double), usz * nv, f);
     fclose(f);
 }
-// DENDRO_DUMP_RHS="<dir>:<step>": dump the unzipped RHS output of the FIRST rhs
-// call (RK stage 1) at that step. Returns true when it should dump now.
-inline bool dump_rhs_wanted(unsigned long step, std::string& dir) {
+// DENDRO_DUMP_RHS="<dir>:<step>[:<k>]": dump the unzipped RHS output of the k-th
+// (default 1st = RK stage 1) rhs call at that step. Returns true to dump now.
+inline bool dump_rhs_wanted(unsigned long step, std::string& dir, unsigned int* kout = nullptr) {
     static const char* e = std::getenv("DENDRO_DUMP_RHS");
     static long last = -1;
+    static unsigned int calls = 0;
     if (!e) return false;
     std::string s(e);
-    size_t c = s.rfind(':');
-    if (c == std::string::npos) return false;
-    if ((unsigned long)std::stoul(s.substr(c + 1)) != step) return false;
-    if (last == (long)step) return false;
-    last = (long)step;
-    dir  = s.substr(0, c);
-    return true;
+    std::vector<std::string> tok;
+    { std::stringstream ss(s); std::string x; while (std::getline(ss, x, ':')) tok.push_back(x); }
+    auto isnum = [](const std::string& x) { return !x.empty() && x.find_first_not_of("0123456789") == std::string::npos; };
+    unsigned long want_step = 0; unsigned int want_k = 1;
+    if (tok.size() >= 3 && isnum(tok[tok.size() - 1]) && isnum(tok[tok.size() - 2])) {
+        want_step = std::stoul(tok[tok.size() - 2]); want_k = (unsigned)std::stoul(tok[tok.size() - 1]);
+        dir = tok[0]; for (size_t q = 1; q + 2 < tok.size(); q++) dir += ":" + tok[q];
+    } else if (tok.size() >= 2 && isnum(tok.back())) {
+        want_step = std::stoul(tok.back()); dir = tok[0]; for (size_t q = 1; q + 1 < tok.size(); q++) dir += ":" + tok[q];
+    } else return false;
+    if (step != want_step) return false;
+    if (last != (long)step) { last = (long)step; calls = 0; }
+    calls++;
+    if (kout) *kout = calls;
+    return calls == want_k;
 }
 }  // namespace bssn

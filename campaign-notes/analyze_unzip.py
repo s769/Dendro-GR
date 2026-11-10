@@ -1,5 +1,5 @@
 import numpy as np,os,sys
-R=os.path.expanduser("~/Dendro-GR-runs/statecmp")
+R=os.path.expanduser("~/Dendro-GR-runs/"+os.environ.get("SC","statecmp"))
 names="alpha chi K gt0 gt1 gt2 gt3 gt4 gt5 beta0 beta1 beta2 At0 At1 At2 At3 At4 At5 Gt0 Gt1 Gt2 B0 B1 B2".split()
 def rd(f):
     with open(f,'rb') as fh:
