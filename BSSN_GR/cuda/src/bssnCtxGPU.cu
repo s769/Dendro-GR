@@ -1556,10 +1556,20 @@ bool BSSNCtxGPU::is_remesh() {
     DVec& m_evar     = m_var[VL::CPU_EV];
     DVec& m_evar_unz = m_var[VL::CPU_EV_UZ_IN];
 
+    static const bool tm_rm = std::getenv("DENDRO_TIME_REMESH") != nullptr;
+    static double tm_rm_acc[3] = {0, 0, 0};
+    static unsigned tm_rm_n    = 0;
+    auto tmn = []() {
+        return std::chrono::duration<double>(
+                   std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    };
+    const double trm0 = tm_rm ? tmn() : 0.0;
     this->unzip(m_evar, m_evar_unz, bssn::BSSN_ASYNC_COMM_K);
 
     DendroScalar* unzipVar[BSSN_NUM_VARS];
     m_evar_unz.to_2d(unzipVar);
+    const double trm1 = tm_rm ? tmn() : 0.0;
 
     unsigned int refineVarIds[bssn::BSSN_NUM_REFINE_VARS];
     for (unsigned int vIndex = 0; vIndex < bssn::BSSN_NUM_REFINE_VARS; vIndex++)
@@ -1576,6 +1586,17 @@ bool BSSNCtxGPU::is_remesh() {
             bssn::isReMeshWAMR(m_uiMesh, (const double**)unzipVar, refineVarIds,
                                bssn::BSSN_NUM_REFINE_VARS, waveletTolFunc,
                                bssn::BSSN_DENDRO_AMR_FAC);
+        if (tm_rm) {
+            const double trm2 = tmn();
+            tm_rm_acc[0] += trm1 - trm0;
+            tm_rm_acc[1] += trm2 - trm1;
+            tm_rm_acc[2] += trm2 - trm0;
+            if (++tm_rm_n % 3 == 0 && !m_uiMesh->getMPIRankGlobal())
+                printf("[remesh-time] n=%u total=%.2fs host_unzip=%.2f wamr=%.2f "
+                       "(nVars=%u)\n",
+                       tm_rm_n, tm_rm_acc[2], tm_rm_acc[0], tm_rm_acc[1],
+                       (unsigned)bssn::BSSN_NUM_REFINE_VARS);
+        }
 
     } else if (bssn::BSSN_REFINEMENT_MODE == bssn::RefinementMode::EH) {
         isRefine = bssn::isRemeshEH(
@@ -1596,6 +1617,34 @@ bool BSSNCtxGPU::is_remesh() {
         isRefine =
             bssn::isRemeshBH(m_uiMesh, m_uiBHLoc, this->get_bh_loc_history(),
                              this->get_bh_loc_time_history());
+    } else if (bssn::BSSN_REFINEMENT_MODE == bssn::RefinementMode::BH_WAMR) {
+        // The CPU driver (BSSNCtx::is_remesh) implements BH_WAMR; the GPU
+        // context did not, so GPU runs with the production parameter files
+        // (BSSN_REFINEMENT_MODE = 4) never remeshed. Mirrored here, gated by
+        // DENDRO_GPU_BH_WAMR=1 (default OFF, i.e. historical behaviour).
+        static const bool gpu_bh_wamr = []() {
+            const char* e = std::getenv("DENDRO_GPU_BH_WAMR");
+            return e && e[0] == '1' && e[1] == '\0';
+        }();
+        if (gpu_bh_wamr) {
+            const bool isR1 = bssn::isRemeshBH(m_uiMesh, m_uiBHLoc,
+                                               this->get_bh_loc_history(),
+                                               this->get_bh_loc_time_history());
+            const bool isR2 = bssn::addRemeshWAMR(
+                m_uiMesh, (const double**)unzipVar, refineVarIds,
+                bssn::BSSN_NUM_REFINE_VARS, waveletTolFunc,
+                bssn::BSSN_DENDRO_AMR_FAC);
+            isRefine = (isR1 || isR2);
+        }
+    }
+    if (tm_rm && bssn::BSSN_REFINEMENT_MODE != bssn::RefinementMode::WAMR) {
+        const double trm2 = tmn();
+        tm_rm_acc[0] += trm1 - trm0;
+        tm_rm_acc[1] += trm2 - trm1;
+        tm_rm_acc[2] += trm2 - trm0;
+        if (++tm_rm_n % 3 == 0 && !m_uiMesh->getMPIRankGlobal())
+            printf("[remesh-time] n=%u total=%.2fs host_unzip=%.2f test=%.2f\n",
+                   tm_rm_n, tm_rm_acc[2], tm_rm_acc[0], tm_rm_acc[1]);
     }
 
     return isRefine;

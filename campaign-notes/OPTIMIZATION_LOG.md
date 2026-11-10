@@ -68,3 +68,17 @@ Takeaways:
 4. Earlier meshprobe profiles (no remesh/extraction/ckpt, 4x smaller mesh, depth 15) describe pure stepping only.
 5. ~9 min of per-simulation initial-mesh convergence precedes step 0; the frozen-mesh replay of init refinement (Tier 1.1 fix) lets perturbed members skip it. Not yet measured end-to-end.
 Caveat: window is the first 1,729 steps of a ~4M-step run; AMR refines further later (more elements, remesh events actually trigger and cost extra), so shares will shift.
+
+## !! GPU runs with the production parameter files never remesh (found 2026-11-09)
+`BSSN_REFINEMENT_MODE = 4` (= `BH_WAMR`) in `pars/q1,q2,q4,q8,q12,q16,q24.par.toml` (q32 uses mode 3 = BH_LOC). The CPU `BSSNCtx::is_remesh` implements BH_WAMR
+(`isRemeshBH` + `addRemeshWAMR`); `BSSNCtxGPU::is_remesh` has only WAMR, EH, EH_WAMR, BH_LOC — for mode 4 it falls through and returns "no refinement". Consequences:
+- GPU production-parameter runs keep the INITIAL mesh for the whole run (refined around the initial puncture positions; does not follow the BHs). Not caught because no remesh events appeared in any
+  profile (prod_A..F: 0 remeshes). The "remesh test" cost seen in the production profile (41.7 s / 26%) was only the host unzip of all vars before falling through.
+- Whether this was intentional for earlier GPU production runs is unknown (LS6 logs predate this tree?). Needs your decision.
+Added (default OFF = historical behaviour): `DENDRO_GPU_BH_WAMR=1` mirrors the CPU branch in `BSSNCtxGPU::is_remesh`.
+Measured on q8 meshprobe (depth 15, 4 GPU, remesh test every 10 steps, mode 4, T=0.5):
+| gate | remeshes | ETS (s) | breakdown |
+|------|---------:|--------:|-----------|
+| off (today) | 0 | 5.5 | host unzip 3.3 s wasted |
+| on (`DENDRO_GPU_BH_WAMR=1`) | 12/12 | 59.0 | test 26.7 s (host unzip 8.7 + BH/WAMR 18.0) + 12 actual remesh/grid-transfer ~27 s (~2.2 s each) |
+=> correct adaptive behaviour costs ~10x the current GPU behaviour at this cadence, all host-side (host unzip, single-thread WAMR, remesh/grid transfer). This, not RHS, is the real production lever once BH_WAMR is on.
