@@ -1596,10 +1596,17 @@ int BSSNCtxGPU::rhs(DVec* in, DVec* out, unsigned int sz, DendroScalar time) {
         static bool warned = false;
         if (!warned) {
             warned = true;
-            if (bssn::BSSN_CAHD_C != 0.0 && !m_uiMesh->getMPIRankGlobal()) {
-                fprintf(stderr, "[bssn-gpu] FATAL: BSSN_CAHD_C=%g but the GPU RHS "
-                        "does not implement CAHD.\n", bssn::BSSN_CAHD_C);
-                MPI_Abort(MPI_COMM_WORLD, 1);
+            if (bssn::BSSN_CAHD_C != 0.0) {
+                // The original GPU port ignores CAHD too. Production par files
+                // set BSSN_CAHD_C=0.06, so aborting would break them; warn
+                // loudly instead. DENDRO_GPU_CAHD_STRICT=1 aborts.
+                if (!m_uiMesh->getMPIRankGlobal())
+                    fprintf(stderr, "[bssn-gpu] WARNING: BSSN_CAHD_C=%g but the "
+                            "GPU RHS does not implement CAHD (same as the "
+                            "original GPU port); CPU runs include it.\n",
+                            bssn::BSSN_CAHD_C);
+                if (std::getenv("DENDRO_GPU_CAHD_STRICT"))
+                    MPI_Abort(MPI_COMM_WORLD, 1);
             }
         }
         static bool warned_cako = false;

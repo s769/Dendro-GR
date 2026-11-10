@@ -40,3 +40,14 @@ Earlier GPU timings (esp. init-phase and early-step costs) should be re-measured
 psi4 l2m2 1.5e-11, l3m2 3.4e-11 rel-to-max; C_HAM 1.0100e-05 both (max differs 1.5e-4 rel);
 remesh rate 6.0 vs 6.1 per time unit. The earlier concern (constraints rising with remeshing) was a symptom of the
 gauge/mesh mismatches, not of remeshing.
+
+## CAHD effect (production par files set BSSN_CAHD_C=0.06; q32: 0.077). Frozen mesh, t<=6.35, CPU 36 ranks
+CPU with CAHD vs CPU without: psi4 l2m2 7.5e-5, l3m2 2.1e-4 rel-to-max; C_HAM +1% (9.37e-6 -> 9.47e-6);
+BH position 8.7e-4. GPU (no CAHD, as in the original port) vs CPU with CAHD: identical psi4 difference
+(7.5e-5 / 2.1e-4) -> the GPU-vs-CPU gap with production pars is exactly the CAHD effect (plus tracking cadence).
+Effect at early time only; accumulation over a full inspiral NOT yet measured. Not implemented on GPU (baseline also
+lacks it); GPU prints a warning (DENDRO_GPU_CAHD_STRICT=1 aborts).
+Harness bug found: run_physcheck.sh appended missing keys inside [AEH_PARAMS]; fixed (insert before first table).
+
+## Production-depth timing after the fixes (q8, T=0.3, 36 OMP/rank, single samples)
+old physics: startup 43 s, ETS 28.5 s | new defaults: 61 s, 30.0 s (+5%) | new + BH_TRACK_FREQ=1: 57 s, 31.2 s (+4%).

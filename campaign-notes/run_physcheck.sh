@@ -10,11 +10,14 @@ from pathlib import Path; import re
 p=Path("$d/local.par.toml"); t=p.read_text()
 def sub(k,v):
     global t; t,n=re.subn(r"^"+k+r" = .*$",k+" = "+v,t,flags=re.M)
-    if n==0: t=t+"\n"+k+" = "+v+"\n"
+    if n==0:
+        m=re.search(r"^\[", t, flags=re.M)   # new top-level keys must precede the first [table]
+        ins=k+" = "+v+"\n"
+        t = (t[:m.start()]+ins+"\n"+t[m.start():]) if m else (t+"\n"+ins)
 for k,v in [("BSSN_MAXDEPTH","13"),("BSSN_BH1_MAX_LEV","13"),("BSSN_BH2_MAX_LEV","13"),("BSSN_RK_TIME_END","$TEND"),
-            ("BSSN_REMESH_TEST_FREQ","0" if "$MODE" in ("cpu0",) or "$MODE".startswith("gf") else "10"),("BSSN_GW_EXTRACT_FREQ","10"),("BSSN_REFINEMENT_MODE","4"),
+            ("BSSN_REMESH_TEST_FREQ","0" if "$MODE" in ("cpu0",) or "$MODE".startswith("gf") or "$MODE".startswith("fz") else "10"),("BSSN_GW_EXTRACT_FREQ","10"),("BSSN_REFINEMENT_MODE","4"),
             ("BSSN_IO_OUTPUT_FREQ","0"),("BSSN_CHECKPT_FREQ","0"),("BSSN_TIME_STEP_OUTPUT_FREQ","10"),
-            ("BSSN_GW_RADAII","[10.0, 12.0, 15.0, 18.0, 20.0, 25.0]")]: sub(k,v)
+            ("BSSN_GW_RADAII","[10.0, 12.0, 15.0, 18.0, 20.0, 25.0]")]+[tuple(x.split("=",1)) for x in __import__("os").environ.get("PAR_OVR","").split(";") if x]: sub(k,v)
 p.write_text(t)
 PY
 ln -sfn $HOME/Dendro-GR-runs/tpid_work/rit_q1_tpid_sol.bin $d/rit_q1_tpid_sol.bin; cd $d
@@ -26,6 +29,8 @@ case $MODE in
   cpu)  mpirun -np 36 --bind-to core env OMP_NUM_THREADS=1 $DENDRO_BUILD/BSSN_GR/bssnSolver local.par.toml 1 > run.log 2>&1 ;;
   gpu)  mpirun -np 4 --bind-to none -x OMP_NUM_THREADS=8 env OMP_NUM_THREADS=8 DENDRO_RHS_PT_ASYNC=1 $DENDRO_BUILD/BSSN_GR/bssnSolverCUDA local.par.toml 1 > run.log 2>&1 ;;
   gpu0) mpirun -np 4 --bind-to none -x OMP_NUM_THREADS=8 env OMP_NUM_THREADS=8 DENDRO_RHS_PT_ASYNC=1 DENDRO_GPU_BH_WAMR=0 $DENDRO_BUILD/BSSN_GR/bssnSolverCUDA local.par.toml 1 > run.log 2>&1 ;;
-  gf*)  mpirun -np ${NP:-4} --bind-to none -x OMP_NUM_THREADS=8 env OMP_NUM_THREADS=8 DENDRO_GPU_BH_WAMR=0 $EXTRA $DENDRO_BUILD/BSSN_GR/bssnSolverCUDA local.par.toml 1 > run.log 2>&1 ;;
+  fzcpu*) mpirun -np 36 --bind-to core env OMP_NUM_THREADS=1 $DENDRO_BUILD/BSSN_GR/bssnSolver local.par.toml 1 > run.log 2>&1 ;;
+  fzgpu*) mpirun -np ${NP:-1} --bind-to none -x OMP_NUM_THREADS=8 env OMP_NUM_THREADS=8 DENDRO_RHS_PT_ASYNC=1 ${EXTRA:-} $DENDRO_BUILD/BSSN_GR/bssnSolverCUDA local.par.toml 1 > run.log 2>&1 ;;
+  gf*)  mpirun -np ${NP:-4} --bind-to none -x OMP_NUM_THREADS=8 env OMP_NUM_THREADS=8 DENDRO_GPU_BH_WAMR=0 ${EXTRA:-} $DENDRO_BUILD/BSSN_GR/bssnSolverCUDA local.par.toml 1 > run.log 2>&1 ;;
 esac
 echo "$MODE wall=$(( $(date +%s)-S ))s $(sed 's/\x1b\[[0-9;]*m//g' run.log | grep 'ETS time' | tail -1) remeshes=$(sed 's/\x1b\[[0-9;]*m//g' run.log | grep -c 'Remesh is triggered')"
