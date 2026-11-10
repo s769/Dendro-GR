@@ -1059,3 +1059,125 @@ index 8e711bd..73138fd 100644
  };
  
  }  // end of namespace device.
+diff --git a/src/mesh.cpp b/src/mesh.cpp
+index 05563a1..0b876ce 100644
+--- a/src/mesh.cpp
++++ b/src/mesh.cpp
+@@ -9577,8 +9577,23 @@ void Mesh::performBlocksSetup(unsigned int cLev, unsigned int *tag,
+     std::vector<unsigned int> *directionList;
+     unsigned int result;
+ 
+-    for (unsigned int e = 0; e < m_uiLocalBlockList.size(); e++) {
+-        blkNode = m_uiLocalBlockList[e].getBlockNode();
++    // Each block's setup (flags, E2Blk entries, diagonal/vertex neighbour
++    // search over m_uiAllElements) only touches that block's own data, so the
++    // loop is parallel over blocks. The per-block SFC_treeSearch costs O(#all
++    // elements), making this O(N^2) serially — the dominant ReMesh cost.
++    // DENDRO_BLKSETUP_SERIAL=1 restores the serial loop.
++    const bool blk_serial = std::getenv("DENDRO_BLKSETUP_SERIAL") != nullptr;
++#pragma omp parallel for schedule(dynamic, 8) if (!blk_serial)
++    for (long e_l = 0; e_l < (long)m_uiLocalBlockList.size(); e_l++) {
++        const unsigned int e = (unsigned int)e_l;
++        ot::TreeNode blkNode = m_uiLocalBlockList[e].getBlockNode();
++        std::vector<ot::Key> blkKeys;
++        std::vector<ot::SearchKey> blkSkeys;
++        unsigned int sz;
++        unsigned int regLev;
++        std::vector<unsigned int> *ownerList;
++        std::vector<unsigned int> *directionList;
++        unsigned int result;
+ 
+         // update the element to block map.
+         for (unsigned int m = m_uiLocalBlockList[e].getLocalElementBegin();
+@@ -9648,10 +9663,53 @@ void Mesh::performBlocksSetup(unsigned int cLev, unsigned int *tag,
+         generateBlkVertexSKeys(m_uiLocalBlockList[e], blkSkeys);
+         mergeKeys(blkSkeys, blkKeys);
+         blkSkeys.clear();
+-        SFC::seqSearch::SFC_treeSearch(
+-            &(*(blkKeys.begin())), &(*(m_uiAllElements.begin())), 0,
+-            blkKeys.size(), 0, m_uiAllElements.size(), m_uiMaxDepth,
+-            m_uiMaxDepth, ROOT_ROTATION);
++        // The elements are sorted in SFC order and form a linear octree, so
++        // the leaf containing a max-depth key is the last element <= key
++        // (O(log N)), instead of SFC_treeSearch's O(N) bucketing of the whole
++        // element array per block. DENDRO_BLKSETUP_TREESEARCH=1 restores the
++        // original search; DENDRO_BLKSETUP_VERIFY=1 runs both and compares.
++        static const bool use_tree = std::getenv("DENDRO_BLKSETUP_TREESEARCH") != nullptr;
++        static const bool verify_bs = std::getenv("DENDRO_BLKSETUP_VERIFY") != nullptr;
++        std::vector<ot::Key> blkKeys_ref;
++        if (verify_bs) blkKeys_ref = blkKeys;
++        if (use_tree || verify_bs) {
++            std::vector<ot::Key>& kk = verify_bs ? blkKeys_ref : blkKeys;
++            SFC::seqSearch::SFC_treeSearch(
++                &(*(kk.begin())), &(*(m_uiAllElements.begin())), 0,
++                kk.size(), 0, m_uiAllElements.size(), m_uiMaxDepth,
++                m_uiMaxDepth, ROOT_ROTATION);
++        }
++        if (!use_tree) {
++            const ot::TreeNode *allp = m_uiAllElements.data();
++            const long Nall          = (long)m_uiAllElements.size();
++            for (unsigned int i = 0; i < blkKeys.size(); i++) {
++                const ot::TreeNode &kn = blkKeys[i];
++                long lo = 0, hi = Nall;
++                while (lo < hi) {  // first element > key
++                    const long mid = (lo + hi) >> 1;
++                    if (kn < allp[mid]) hi = mid; else lo = mid + 1;
++                }
++                const long idx = lo - 1;
++                if (idx >= 0 && (allp[idx] == kn || allp[idx].isAncestor(kn))) {
++                    blkKeys[i].setFlag(blkKeys[i].getFlag() | OCT_FOUND);
++                    blkKeys[i].setSearchResult((unsigned int)idx);
++                }
++            }
++            if (verify_bs) {
++                unsigned int bad = 0;
++                for (unsigned int i = 0; i < blkKeys.size(); i++)
++                    bad += ((blkKeys[i].getFlag() & OCT_FOUND) !=
++                            (blkKeys_ref[i].getFlag() & OCT_FOUND)) ||
++                           ((blkKeys[i].getFlag() & OCT_FOUND) &&
++                            blkKeys[i].getSearchResult() !=
++                                blkKeys_ref[i].getSearchResult());
++                if (bad) {
++#pragma omp critical
++                    printf("[blksetup-verify] block %u: %u/%zu key results differ\n",
++                           e, bad, blkKeys.size());
++                }
++            }
++        }
+ 
+         for (unsigned int i = 0; i < blkKeys.size(); i++) {
+             assert(blkKeys[i].getFlag() & OCT_FOUND);
+@@ -10612,6 +10670,9 @@ ot::Mesh *Mesh::ReMesh(unsigned int grainSz, double ld_tol, unsigned int sfK,
+                        unsigned int *blk_tags, unsigned int blk_tag_sz) {
+     dendro::logger::info(dendro::logger::Scope{"MESH"},
+                          "Creating new mesh during remesh");
++    static const bool rm_tm = std::getenv("DENDRO_TIME_REMESH") != nullptr;
++    const double rm_t0 = rm_tm ? MPI_Wtime() : 0.0;
++    double rm_t_bal = 0.0;
+     std::vector<ot::TreeNode> balOct1;  // new balanced octree.
+ 
+     if (m_uiIsActive) {
+@@ -10925,12 +10986,23 @@ ot::Mesh *Mesh::ReMesh(unsigned int grainSz, double ld_tol, unsigned int sfK,
+             assert(par::test::isUniqueAndSorted(balOct1, m_uiCommActive));
+         }
+     }
++    if (rm_tm) rm_t_bal = MPI_Wtime() - rm_t0;
+ 
+     ot::Mesh *pMesh =
+         new ot::Mesh(balOct1, 1, m_uiElementOrder, m_uiCommGlobal,
+                      m_uiIsBlockSetup, m_uiScatterMapType, grainSz, ld_tol, sfK,
+                      getWeight, blk_tags, blk_tag_sz);
+     pMesh->setDomainBounds(m_uiDMinPt, m_uiDMaxPt);
++    if (rm_tm) {
++        const double tmesh = MPI_Wtime() - rm_t0 - rm_t_bal;
++        double loc[2] = {rm_t_bal, tmesh}, mx[2], mn[2];
++        MPI_Allreduce(loc, mx, 2, MPI_DOUBLE, MPI_MAX, m_uiCommGlobal);
++        MPI_Allreduce(loc, mn, 2, MPI_DOUBLE, MPI_MIN, m_uiCommGlobal);
++        if (!m_uiGlobalRank)
++            printf("[remesh-inner] balance+partition max=%.3f min=%.3f s | "
++                   "Mesh ctor max=%.3f min=%.3f s\n",
++                   mx[0], mn[0], mx[1], mn[1]);
++    }
+ 
+     dendro::logger::info(dendro::logger::Scope{"MESH"},
+                          "Finished creating the new mesh during remesh!");

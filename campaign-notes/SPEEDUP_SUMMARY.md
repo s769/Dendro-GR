@@ -32,6 +32,15 @@ psi4 agreement with original: 8e-11..3e-9 rel (print precision); shell path alon
 LTS on GPU (no-go; ceiling 1.7-1.95x under default LTS offset), unzip hang/nh split & coalescing variants, async-K, defer-DD / scoped / CSE staging, K-members-per-CTA (v2), packed K ghost exchange (0.5-0.9x at these sizes),
 UCX transport knobs, unzip/exchange overlap, FP32 variants (parked), tensor cores (closed).
 
+## Adaptive remeshing (GPU BH_WAMR; opt-in `DENDRO_GPU_BH_WAMR=1 DENDRO_GPU_WAMR=1`)
+| case | before | now | speedup |
+|------|-------:|----:|--------:|
+| remesh *test* on meshprobe (12 tests, 4 GPU) | 26.3 s (host unzip + host WAMR) | 0.47 s (device matrix-free WAMR) | 56x |
+| Mesh construction per remesh, meshprobe late mesh (max rank) | 2.37 s | 0.37 s | 6.4x |
+| meshprobe adaptive stress (remesh every 10 steps, 12 remeshes) | 82.6 s | 27.8 s | 3.0x |
+| production-depth q8 adaptive (35 remeshes, 1,729 steps) | 380.8 s | 190.4 s | 2.0x (7.5 s -> 1.4 s per remesh) |
+Adaptive vs non-adaptive production-depth run: 190.4 s vs 132.0 s (+44%); before the remesh work it was +189%.
+
 ## Biggest caveat
-GPU runs with production parameter files (`BSSN_REFINEMENT_MODE = 4`) never remesh (GPU `is_remesh` lacks BH_WAMR). With the gated fix (`DENDRO_GPU_BH_WAMR=1`) the same case ran ~10x slower
-(host unzip + single-thread WAMR + remesh/grid transfer). The speedups above are for the current GPU behaviour; correct adaptive runs are dominated by host-side remesh costs not yet optimized.
+GPU runs with production parameter files (`BSSN_REFINEMENT_MODE = 4`) never remesh (GPU `is_remesh` lacks BH_WAMR). With the gated fix (`DENDRO_GPU_BH_WAMR=1`) the first version ran ~10x slower on the meshprobe; after the device WAMR test and the block-setup fix the adaptive overhead is +44% at production depth (see above).
+The default is still OFF pending your decision; remeshing correctness over long runs has only been checked for short windows.

@@ -99,3 +99,29 @@ Results, q8 meshprobe depth 15, 4 GPU, mode 4, remesh test every 10 steps (12 te
 | device WAMR (R3) | **0.47 s** (56x) | **55.4** (-33%) |
 Remaining remesh cost: per event ReMesh 0.56-0.77 s + grid transfer ~0.5 s (max over ranks ~1.1-1.5 s) -> ~16 s of the 55.4 s; all host (octree ReMesh + new Mesh construction + host grid transfer).
 Recommended for adaptive production runs: `DENDRO_GPU_BH_WAMR=1 DENDRO_GPU_WAMR=1`.
+
+## Mesh construction during remesh: O(N^2) block setup fixed (2026-11-09)
+`Mesh::performBlocksSetup` (dendrolib, called from `new Mesh` in `ReMesh`) ran, for EVERY block, `SFC_treeSearch(blkKeys ~26 keys, ALL elements)`, which buckets the whole
+element range => O(N) per block, O(N^2) overall. Stack sampling: 22/60 samples there; mesh ctor was the whole ReMesh cost (balance+partition only ms) and grew superlinearly with mesh size (0.18 s @4.6k elem -> 3.6-6.6 s @ ~50k elem prod-depth, 30% rank imbalance).
+Fixes (dendrolib `src/mesh.cpp`, in `patches/dendrolib/current_local_full.patch`):
+1. loop over blocks parallelised with OpenMP (per-block data only); `DENDRO_BLKSETUP_SERIAL=1` restores serial.
+2. key->element lookup by binary search on the SFC-sorted element array (leaf containing a max-depth key = last element <= key, `isAncestor` check): O(log N); `DENDRO_BLKSETUP_TREESEARCH=1` restores `SFC_treeSearch`.
+   `DENDRO_BLKSETUP_VERIFY=1` runs both and compares: **0 mismatching key results** over all blocks/ranks/12 remeshes.
+Results (q8 meshprobe depth 15, 4 GPU, mode 4 + device WAMR, remesh test every 10 steps, 12 remeshes, psi4 every 10):
+| config | Mesh ctor (late remesh, max rank) | ReMesh | ETS (s) |
+|--------|---------------------------------:|-------:|--------:|
+| serial, tree search | 2.37 s (min 1.68) | 2.52 s | 55.4 |
+| OMP=8, tree search | 1.03 s | 1.01 s | 33.9 |
+| OMP=8, binary search (new default) | **0.37 s** (min 0.36) | 0.40 s | **27.8** (-50% vs serial) |
+psi4 agrees with the serial/tree-search run to 4e-19..1e-18 abs. Cumulative for the adaptive stress case: host BH_WAMR 82.6 s -> 27.8 s (3.0x).
+
+## Production-depth q8, adaptive (BH_WAMR ON), 4 GPU, 1,729 steps, 35 remeshes (2026-11-09)
+| run | stack | ETS (s) | per-remesh cost |
+|-----|-------|--------:|----------------:|
+| B (non-adaptive, as GPU runs today) | PT_ASYNC, new extraction | 132.0 | - |
+| G | + BH_WAMR ON, device WAMR test, tree-search block setup (serial) | 380.8 | 7.5 s (ReMesh 3.6 + rest) |
+| **G2** | + OpenMP/binary-search block setup (`Mesh ctor` 0.31 s) | **190.4** | **1.4 s** (ReMesh 0.6-0.7, grid transfer ~0.75) |
+=> adaptive remeshing (35 events) now costs +58 s (+44%) over the non-adaptive run instead of +249 s (+189%); a remesh is ~1.4 s ~ 32 steps of stepping (was ~170).
+Remesh *test* (device WAMR) total over 33 tests: 2.3 s (host version ~2 s per test at this size). Remaining per-remesh cost: host grid transfer (~0.45 s DVec::grid_transfer + ~0.3 s vector/mpi-ctx re-creation) and rest of ReMesh (~0.3 s).
+Run H (host WAMR at production depth) crashed: I rebuilt the binary while it was starting (bus error), not a code issue; meshprobe host-vs-device comparison stands (26.3 s -> 0.47 s test).
+Env summary for adaptive production runs: `DENDRO_GPU_BH_WAMR=1 DENDRO_GPU_WAMR=1`, OMP threads >1 (`--bind-to none`/`--cpus-per-task`); defaults changed in dendrolib: binary-search block setup ON (verify/restore knobs above), redundant 2nd device-mesh upload OFF (`DENDRO_REMESH_DOUBLE_UPLOAD=1` restores).
