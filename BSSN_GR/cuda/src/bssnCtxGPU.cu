@@ -80,14 +80,24 @@ static void gpu_apply_cahd(double* out, const double* in, BlockGPU3D* blk_dev,
     // Fused path (default) for blocks away from the physical boundary; the
     // two-kernel path handles blocks with bflag != 0 (one-sided stencils).
     // DENDRO_GPU_CAHD_FUSED=0: two-kernel path for ALL blocks (reference).
-    static const bool fused = []() {
+    // DENDRO_GPU_CAHD_MODE: 0 = two-kernel generated path for all blocks (reference),
+    //   1 = fused kernel with the generated bracket, 2 = fused kernel with the analytically contracted
+    //   Hamiltonian (default; same math, no register spills). DENDRO_GPU_CAHD_FUSED=0 == mode 0.
+    static const int mode = []() {
+        const char* m = std::getenv("DENDRO_GPU_CAHD_MODE");
+        if (m) return atoi(m);
         const char* e = std::getenv("DENDRO_GPU_CAHD_FUSED");
-        return !(e && e[0] == '0');
+        return (e && e[0] == '0') ? 0 : 2;
     }();
+    const bool fused = mode != 0;
     unsigned int bflag_only = 0;
     if (fused) {
-        device::cahd_fused<3, NX><<<nblocks, 343>>>(out, in, blk_dev, nblocks,
-                                                    unzip_sz, cahd_C, dt);
+        if (mode == 2)
+            device::cahd_fused_c<3, NX><<<nblocks, 343>>>(out, in, blk_dev, nblocks,
+                                                          unzip_sz, cahd_C, dt);
+        else
+            device::cahd_fused<3, NX><<<nblocks, 343>>>(out, in, blk_dev, nblocks,
+                                                        unzip_sz, cahd_C, dt);
         // any block with a physical-boundary flag on this rank?
         static const ot::Mesh* last_mesh = nullptr;
         (void)last_mesh;

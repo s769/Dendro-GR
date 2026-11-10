@@ -1251,6 +1251,213 @@ GLOBAL_FUNC __launch_bounds__(343) void cahd_fused(
         (dt * (10 * DENDRO_18 + 1));
 }
 
+// Contracted-tensor CAHD (default, DENDRO_GPU_CAHD_MODE=2). Mathematically identical to the generated
+// bracket (cahd_fused / cahd_chi_rhs), validated numerically (gen/ham_contracted.py: B = -12 H to 4e-13 on
+// random inputs): the Ricci tensor is contracted with the inverse metric analytically, which needs
+//   - the 6 metric components and their first derivatives (18),
+//   - the operator  gi_lm d_l d_m  applied to each metric component (accumulated, never stored as 36 values),
+//   - only 3 of the 9 d_i Gt_j (the divergence), read straight from global memory,
+//   - chi with its derivatives, At, K.
+// ~100 live values instead of 622 temporaries + 72 derivative values -> no register spills.
+namespace cahd_c {
+__device__ __forceinline__ constexpr int sym(int i, int j) {
+    return (i == j) ? (i == 0 ? 0 : (i == 1 ? 3 : 5)) : ((i + j == 1) ? 1 : ((i + j == 2) ? 2 : 4));
+}
+}  // namespace cahd_c
+
+template <int pw, unsigned int nx>
+GLOBAL_FUNC __launch_bounds__(343) void cahd_fused_c(
+    DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    DEVICE_REAL cahd_C, DEVICE_REAL dt) {
+    using cahd_c::sym;
+    constexpr int PB[6] = {0, 0, 0, 1, 1, 2};   // pair (b,c) of the packed symmetric index (compile-time)
+    constexpr int PC[6] = {0, 1, 2, 1, 2, 2};
+    const DEVICE_INT Z_ID = GPUDevice::block_id_x();
+    if (Z_ID >= nblocks) return;
+    const BlockGPU3D blk = dptr_blk[Z_ID];
+    if (blk.m_bflag != 0) return;
+    constexpr unsigned int NI = nx - 2 * pw;
+    const unsigned int tid    = GPUDevice::thread_id_x();
+    const int i = pw + tid % NI;
+    const int j = pw + (tid / NI) % NI;
+    const int k = pw + tid / (NI * NI);
+    const DEVICE_UINT offset     = blk.m_offset;
+    const DEVICE_UINT sz_per_dof = szpdof_uz;
+    const DEVICE_UINT pp         = k * nx * nx + j * nx + i;
+    SHARED_MEM DEVICE_REAL s[nx * nx * nx];
+    const DEVICE_REAL* const U = dptr_u + offset;
+
+    const DEVICE_REAL ix60   = (1.0 / blk.m_dx[0]) / 60.0;
+    const DEVICE_REAL iy60   = (1.0 / blk.m_dx[1]) / 60.0;
+    const DEVICE_REAL iz60   = (1.0 / blk.m_dx[2]) / 60.0;
+    const DEVICE_REAL ixx180 = (1.0 / (blk.m_dx[0] * blk.m_dx[0])) / 180.0;
+    const DEVICE_REAL iyy180 = (1.0 / (blk.m_dx[1] * blk.m_dx[1])) / 180.0;
+    const DEVICE_REAL izz180 = (1.0 / (blk.m_dx[2] * blk.m_dx[2])) / 180.0;
+
+    auto Sx  = [&](int di, int dj, int dk) { return s[(i + di) + nx * ((j + dj) + nx * (k + dk))]; };
+    auto d1x = [&](int dj, int dk) { return (-Sx(-3,dj,dk)+9.0*Sx(-2,dj,dk)-45.0*Sx(-1,dj,dk)+45.0*Sx(1,dj,dk)-9.0*Sx(2,dj,dk)+Sx(3,dj,dk))*ix60; };
+    auto d1y = [&](int di, int dk) { return (-Sx(di,-3,dk)+9.0*Sx(di,-2,dk)-45.0*Sx(di,-1,dk)+45.0*Sx(di,1,dk)-9.0*Sx(di,2,dk)+Sx(di,3,dk))*iy60; };
+    auto d1z = [&](int di, int dj) { return (-Sx(di,dj,-3)+9.0*Sx(di,dj,-2)-45.0*Sx(di,dj,-1)+45.0*Sx(di,dj,1)-9.0*Sx(di,dj,2)+Sx(di,dj,3))*iz60; };
+    auto st  = [&](const DEVICE_REAL* a, DEVICE_REAL c) { return (-a[0]+9.0*a[1]-45.0*a[2]+45.0*a[4]-9.0*a[5]+a[6])*c; };
+
+    // fields at the point
+    DEVICE_REAL g[6], At[6];
+#pragma unroll
+    for (int q = 0; q < 6; q++) {
+        g[q]  = U[(size_t)(bssn::VAR::U_SYMGT0 + q) * sz_per_dof + pp];
+        At[q] = U[(size_t)(bssn::VAR::U_SYMAT0 + q) * sz_per_dof + pp];
+    }
+    const DEVICE_REAL K   = U[(size_t)bssn::VAR::U_K * sz_per_dof + pp];
+    const DEVICE_REAL chi = U[(size_t)bssn::VAR::U_CHI * sz_per_dof + pp];
+    // inverse metric (adjugate / det, as the generator)
+    const DEVICE_REAL det = g[0]*(g[3]*g[5]-g[4]*g[4]) - g[1]*(g[1]*g[5]-g[4]*g[2]) + g[2]*(g[1]*g[4]-g[3]*g[2]);
+    DEVICE_REAL gi6[6];
+    gi6[0] = (g[3]*g[5]-g[4]*g[4])/det; gi6[1] = (g[2]*g[4]-g[1]*g[5])/det; gi6[2] = (g[1]*g[4]-g[2]*g[3])/det;
+    gi6[3] = (g[0]*g[5]-g[2]*g[2])/det; gi6[4] = (g[1]*g[2]-g[0]*g[4])/det; gi6[5] = (g[0]*g[3]-g[1]*g[1])/det;
+    auto GI = [&](int a, int b) { return gi6[sym(a, b)]; };
+
+    // metric components: first derivatives and  Tg[q] = gi_lm d_l d_m g_q
+    DEVICE_REAL dg[3][6], Tg[6];
+    for (int q = 0; q < 6; q++) {
+        for (unsigned int w = tid; w < nx*nx*nx; w += blockDim.x) s[w] = U[(size_t)(bssn::VAR::U_SYMGT0 + q) * sz_per_dof + w];
+        __syncthreads();
+        const DEVICE_REAL c0 = Sx(0,0,0);
+        dg[0][q] = d1x(0,0); dg[1][q] = d1y(0,0); dg[2][q] = d1z(0,0);
+        const DEVICE_REAL xx = (2.0*Sx(-3,0,0)-27.0*Sx(-2,0,0)+270.0*Sx(-1,0,0)-490.0*c0+270.0*Sx(1,0,0)-27.0*Sx(2,0,0)+2.0*Sx(3,0,0))*ixx180;
+        const DEVICE_REAL yy = (2.0*Sx(0,-3,0)-27.0*Sx(0,-2,0)+270.0*Sx(0,-1,0)-490.0*c0+270.0*Sx(0,1,0)-27.0*Sx(0,2,0)+2.0*Sx(0,3,0))*iyy180;
+        const DEVICE_REAL zz = (2.0*Sx(0,0,-3)-27.0*Sx(0,0,-2)+270.0*Sx(0,0,-1)-490.0*c0+270.0*Sx(0,0,1)-27.0*Sx(0,0,2)+2.0*Sx(0,0,3))*izz180;
+        DEVICE_REAL a[7];
+#pragma unroll
+        for (int r = -3; r <= 3; r++) a[r + 3] = d1x(r, 0);
+        const DEVICE_REAL xy = st(a, iy60);
+#pragma unroll
+        for (int r = -3; r <= 3; r++) a[r + 3] = d1x(0, r);
+        const DEVICE_REAL xz = st(a, iz60);
+#pragma unroll
+        for (int r = -3; r <= 3; r++) a[r + 3] = d1y(0, r);
+        const DEVICE_REAL yz = st(a, iz60);
+        Tg[q] = gi6[0]*xx + gi6[3]*yy + gi6[5]*zz + 2.0*(gi6[1]*xy + gi6[2]*xz + gi6[4]*yz);
+        __syncthreads();
+    }
+    // chi: first derivatives, L = gi_lm d_l d_m chi
+    DEVICE_REAL dchi[3], Lc;
+    {
+        for (unsigned int w = tid; w < nx*nx*nx; w += blockDim.x) s[w] = U[(size_t)bssn::VAR::U_CHI * sz_per_dof + w];
+        __syncthreads();
+        const DEVICE_REAL c0 = Sx(0,0,0);
+        dchi[0] = d1x(0,0); dchi[1] = d1y(0,0); dchi[2] = d1z(0,0);
+        const DEVICE_REAL xx = (2.0*Sx(-3,0,0)-27.0*Sx(-2,0,0)+270.0*Sx(-1,0,0)-490.0*c0+270.0*Sx(1,0,0)-27.0*Sx(2,0,0)+2.0*Sx(3,0,0))*ixx180;
+        const DEVICE_REAL yy = (2.0*Sx(0,-3,0)-27.0*Sx(0,-2,0)+270.0*Sx(0,-1,0)-490.0*c0+270.0*Sx(0,1,0)-27.0*Sx(0,2,0)+2.0*Sx(0,3,0))*iyy180;
+        const DEVICE_REAL zz = (2.0*Sx(0,0,-3)-27.0*Sx(0,0,-2)+270.0*Sx(0,0,-1)-490.0*c0+270.0*Sx(0,0,1)-27.0*Sx(0,0,2)+2.0*Sx(0,0,3))*izz180;
+        DEVICE_REAL a[7];
+#pragma unroll
+        for (int r = -3; r <= 3; r++) a[r + 3] = d1x(r, 0);
+        const DEVICE_REAL xy = st(a, iy60);
+#pragma unroll
+        for (int r = -3; r <= 3; r++) a[r + 3] = d1x(0, r);
+        const DEVICE_REAL xz = st(a, iz60);
+#pragma unroll
+        for (int r = -3; r <= 3; r++) a[r + 3] = d1y(0, r);
+        const DEVICE_REAL yz = st(a, iz60);
+        Lc = gi6[0]*xx + gi6[3]*yy + gi6[5]*zz + 2.0*(gi6[1]*xy + gi6[2]*xz + gi6[4]*yz);
+        __syncthreads();
+    }
+    // divergence of the evolved Gamma-tilde: d_x Gt0 + d_y Gt1 + d_z Gt2 (global memory, 6th order centered)
+    DEVICE_REAL divG;
+    {
+        const DEVICE_REAL* G0 = U + (size_t)(bssn::VAR::U_GT0 + 0) * sz_per_dof + pp;
+        const DEVICE_REAL* G1 = U + (size_t)(bssn::VAR::U_GT0 + 1) * sz_per_dof + pp;
+        const DEVICE_REAL* G2 = U + (size_t)(bssn::VAR::U_GT0 + 2) * sz_per_dof + pp;
+        divG = (-G0[-3]+9.0*G0[-2]-45.0*G0[-1]+45.0*G0[1]-9.0*G0[2]+G0[3])*ix60
+             + (-G1[-3*(int)nx]+9.0*G1[-2*(int)nx]-45.0*G1[-(int)nx]+45.0*G1[(int)nx]-9.0*G1[2*(int)nx]+G1[3*(int)nx])*iy60
+             + (-G2[-3*(int)(nx*nx)]+9.0*G2[-2*(int)(nx*nx)]-45.0*G2[-(int)(nx*nx)]+45.0*G2[(int)(nx*nx)]-9.0*G2[2*(int)(nx*nx)]+G2[3*(int)(nx*nx)])*iz60;
+    }
+
+    // Christoffel symbols of the conformal metric
+    DEVICE_REAL C1[3][6], C2[3][6], CalGt[3], Lam[3];
+#pragma unroll
+    for (int a = 0; a < 3; a++)
+#pragma unroll
+        for (int q = 0; q < 6; q++) {
+            const int b = PB[q], c = PC[q];
+            C1[a][q] = 0.5 * (dg[c][sym(a, b)] + dg[b][sym(a, c)] - dg[a][sym(b, c)]);
+        }
+#pragma unroll
+    for (int a = 0; a < 3; a++)
+#pragma unroll
+        for (int q = 0; q < 6; q++) C2[a][q] = GI(a,0)*C1[0][q] + GI(a,1)*C1[1][q] + GI(a,2)*C1[2][q];
+#pragma unroll
+    for (int a = 0; a < 3; a++) {
+        DEVICE_REAL cg = 0.0;
+#pragma unroll
+        for (int b = 0; b < 3; b++)
+#pragma unroll
+            for (int c = 0; c < 3; c++) cg += GI(b, c) * C2[a][sym(b, c)];
+        CalGt[a] = cg;
+        DEVICE_REAL lm = 0.0;
+#pragma unroll
+        for (int b = 0; b < 3; b++)
+#pragma unroll
+            for (int c = 0; c < 3; c++) lm += GI(b, c) * dg[a][sym(b, c)];
+        Lam[a] = lm;
+    }
+    DEVICE_REAL t3 = 0.0;
+#pragma unroll
+    for (int a = 0; a < 3; a++) t3 += CalGt[a] * 0.5 * Lam[a];
+    DEVICE_REAL t4a = 0.0, t4b = 0.0;
+#pragma unroll
+    for (int a = 0; a < 3; a++)       // a == k
+#pragma unroll
+        for (int l = 0; l < 3; l++)
+#pragma unroll
+            for (int m = 0; m < 3; m++) {
+                const DEVICE_REAL glm = GI(l, m);
+                DEVICE_REAL x4a = 0.0, x4b = 0.0;
+#pragma unroll
+                for (int ii = 0; ii < 3; ii++) {
+                    x4a += C2[a][sym(l, ii)] * C2[ii][sym(a, m)];
+                    DEVICE_REAL E = GI(ii,0)*C1[a][sym(l,0)] + GI(ii,1)*C1[a][sym(l,1)] + GI(ii,2)*C1[a][sym(l,2)];  // E[k][l][i]
+                    x4b += C2[a][sym(ii, m)] * E;
+                }
+                t4a += glm * x4a;
+                t4b += glm * x4b;
+            }
+    t4a *= 2.0;
+    DEVICE_REAL S1 = 0.0;
+    {
+        const DEVICE_REAL mult[6] = {1.0, 2.0, 2.0, 1.0, 2.0, 1.0};
+#pragma unroll
+        for (int q = 0; q < 6; q++) S1 += mult[q] * gi6[q] * Tg[q];
+        S1 *= -0.5;
+    }
+    const DEVICE_REAL SRt = S1 + divG + t3 + t4a + t4b;
+    DEVICE_REAL Q = 0.0, cgc = 0.0;
+#pragma unroll
+    for (int l = 0; l < 3; l++) {
+#pragma unroll
+        for (int m = 0; m < 3; m++) Q += GI(l, m) * dchi[l] * dchi[m];
+        cgc += CalGt[l] * dchi[l];
+    }
+    const DEVICE_REAL SRphi = (2.0 / chi) * (Lc - cgc) - (5.0 / (2.0 * chi * chi)) * Q;
+    // A_ij A^ij = tr( (gi At)^2 )
+    DEVICE_REAL AA = 0.0;
+#pragma unroll
+    for (int a = 0; a < 3; a++)
+#pragma unroll
+        for (int b = 0; b < 3; b++) {
+            DEVICE_REAL mab = 0.0, mba = 0.0;
+#pragma unroll
+            for (int c = 0; c < 3; c++) { mab += GI(a, c) * At[sym(c, b)]; mba += GI(b, c) * At[sym(c, a)]; }
+            AA += mab * mba;
+        }
+    const DEVICE_REAL H = chi * (SRt + SRphi) - AA + (2.0 / 3.0) * K * K;
+    const DEVICE_REAL dx_i = fmin(fmin(blk.m_dx[0], blk.m_dx[1]), blk.m_dx[2]);
+    const DEVICE_REAL dx2  = dx_i * dx_i;
+    dptr_Fu[(size_t)bssn::VAR::U_CHI * sz_per_dof + offset + pp] +=
+        cahd_C * dx2 * chi * H / (dt * (10.0 * dx2 + 1.0));
+}
+
 template <int pw, int nx, int pencil_sz>
 GLOBAL_FUNC __launch_bounds__(64) void eval_rhs2(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,

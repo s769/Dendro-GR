@@ -82,3 +82,19 @@ two-kernel path (one-sided stencils). Accuracy of the fused kernel vs CPU: stage
 ## End-to-end (adaptive, remesh/10, BH_WAMR, t<=13.8): GPU (init-mesh fix + SSL + CAHD + BH_TRACK_FREQ=1) vs CPU (CAHD)
 BH positions 5e-14, C_HAM 5e-11, psi4 l2m2 1.5e-11, l3m2 2.8e-11; 86 remeshes on both; GPU 165 s vs CPU 1262 s (36 ranks).
 (GPU before the fixes, no CAHD: psi4 2.5e-3 / 5.2e-3 off.)
+
+## CAHD theory notes (for kernel design)  -- source: arXiv:2404.01137 (Eq. 26) + CodeGen/bssn.py
+- Added to the conformal-factor equation: chi_rhs += C * chi * (dx_i^2/(1+10 dx_i^2)) / dt * H  (the "WKB" variant used by
+  the CPU code; paper form: -C*dt_n*[CFL0*ds_n/dt_n]*H_-).  H = chi*gt^{jk}R_jk - At_ij At^ij + (2/3)K^2 (vacuum).
+- Why: H violations act like an effective energy density and are largest at the sharp lapse pulse / strong field near the
+  punctures and persist at refinement boundaries; the term damps a constraint-violating mode exponentially and, because
+  H -> 0 in the continuum limit, vanishes with resolution (prefactor ~ dx^2/dt ~ dx/CFL on fine levels; saturates at
+  ~0.1/dt on coarse levels, hence the softening 1/(1+10dx^2)).  The dt-based scaling keeps the damping stable at any
+  resolution (an alpha*H term would have a parabolic CFL limit ~dx^2).
+- Consequence for cost: the term needs H pointwise EVERY RK stage from the stage state; H is cheap in contracted form
+  (inverse metric, Christoffels, a few contractions). The generated 622-temporary expression was the problem (spills).
+- Possible further savings (NOT exact vs CPU, opt-in only if measured error is acceptable): freeze H over the 4 RK stages
+  (smooth slowly varying source), or skip levels where chi*dx^2*H/dt is below a threshold.  Not implemented.
+- Exact algebraic identities used in the contracted H (validated to ~4e-13 vs the generated bracket, cuda/gen/ham_contracted.py):
+  gi^{ij} g_ki d_j Gt^k = div Gt (only d_x Gt^x + d_y Gt^y + d_z Gt^z needed, not all 9);  gi^{ij} C1_{ijk} = (1/2) d_k ln det g;
+  gi^{ij} Rphi_ij = (2/chi)(L - CalGt.grad chi) - 5/(2 chi^2) Q   (L = gi^{lm} d_l d_m chi, Q = gi^{lm} d_l chi d_m chi).
