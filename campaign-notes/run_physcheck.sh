@@ -12,7 +12,7 @@ def sub(k,v):
     global t; t,n=re.subn(r"^"+k+r" = .*$",k+" = "+v,t,flags=re.M)
     if n==0: t=t+"\n"+k+" = "+v+"\n"
 for k,v in [("BSSN_MAXDEPTH","13"),("BSSN_BH1_MAX_LEV","13"),("BSSN_BH2_MAX_LEV","13"),("BSSN_RK_TIME_END","$TEND"),
-            ("BSSN_REMESH_TEST_FREQ","0" if "$MODE"=="cpu0" else "10"),("BSSN_GW_EXTRACT_FREQ","10"),("BSSN_REFINEMENT_MODE","4"),
+            ("BSSN_REMESH_TEST_FREQ","0" if "$MODE" in ("cpu0",) or "$MODE".startswith("gf") else "10"),("BSSN_GW_EXTRACT_FREQ","10"),("BSSN_REFINEMENT_MODE","4"),
             ("BSSN_IO_OUTPUT_FREQ","0"),("BSSN_CHECKPT_FREQ","0"),("BSSN_TIME_STEP_OUTPUT_FREQ","10"),
             ("BSSN_GW_RADAII","[10.0, 12.0, 15.0, 18.0, 20.0, 25.0]")]: sub(k,v)
 p.write_text(t)
@@ -24,5 +24,6 @@ case $MODE in
   cpu)  mpirun -np 36 --bind-to core env OMP_NUM_THREADS=1 $DENDRO_BUILD/BSSN_GR/bssnSolver local.par.toml 1 > run.log 2>&1 ;;
   gpu)  mpirun -np 4 --bind-to none -x OMP_NUM_THREADS=8 env OMP_NUM_THREADS=8 DENDRO_RHS_PT_ASYNC=1 $DENDRO_BUILD/BSSN_GR/bssnSolverCUDA local.par.toml 1 > run.log 2>&1 ;;
   gpu0) mpirun -np 4 --bind-to none -x OMP_NUM_THREADS=8 env OMP_NUM_THREADS=8 DENDRO_RHS_PT_ASYNC=1 DENDRO_GPU_BH_WAMR=0 $DENDRO_BUILD/BSSN_GR/bssnSolverCUDA local.par.toml 1 > run.log 2>&1 ;;
+  gf*)  mpirun -np ${NP:-4} --bind-to none -x OMP_NUM_THREADS=8 env OMP_NUM_THREADS=8 DENDRO_GPU_BH_WAMR=0 $EXTRA $DENDRO_BUILD/BSSN_GR/bssnSolverCUDA local.par.toml 1 > run.log 2>&1 ;;
 esac
 echo "$MODE wall=$(( $(date +%s)-S ))s $(sed 's/\x1b\[[0-9;]*m//g' run.log | grep 'ETS time' | tail -1) remeshes=$(sed 's/\x1b\[[0-9;]*m//g' run.log | grep -c 'Remesh is triggered')"

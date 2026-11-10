@@ -243,10 +243,36 @@ int BSSNCtxGPU::initialize() {
             isRefine = (bssn::mesh_replay::apply_init_flags(m_uiMesh,
                                                             iterCount) == 0);
         else {
-            isRefine =
-                bssn::isReMeshWAMR(m_uiMesh, (const double**)unzipVar,
-                                   refineVarIds, bssn::BSSN_NUM_REFINE_VARS,
-                                   waveletTolFunc, bssn::BSSN_DENDRO_AMR_FAC);
+            // Match the CPU driver (BSSNCtx::initialize): with
+            // BSSN_USE_SET_REF_MODE_FOR_INITIAL_CONVERGE the init refinement
+            // uses the configured mode (BH_WAMR in production), not plain WAMR.
+            // The GPU driver previously ignored this flag, so GPU runs started
+            // on a different (coarser near the BHs) mesh than CPU runs.
+            // DENDRO_GPU_INIT_REFMODE=0 restores the old behaviour.
+            static const bool init_refmode = []() {
+                const char* e = std::getenv("DENDRO_GPU_INIT_REFMODE");
+                return !(e && e[0] == '0');
+            }();
+            if (init_refmode && bssn::BSSN_USE_SET_REF_MODE_FOR_INITIAL_CONVERGE) {
+                // state is host-resident during init: host BH + WAMR criteria
+                if (bssn::BSSN_REFINEMENT_MODE == bssn::RefinementMode::BH_WAMR) {
+                    const bool r1 = bssn::isRemeshBH(
+                        m_uiMesh, m_uiBHLoc, this->get_bh_loc_history(),
+                        this->get_bh_loc_time_history());
+                    const bool r2 = bssn::addRemeshWAMR(
+                        m_uiMesh, (const double**)unzipVar, refineVarIds,
+                        bssn::BSSN_NUM_REFINE_VARS, waveletTolFunc,
+                        bssn::BSSN_DENDRO_AMR_FAC);
+                    isRefine = (r1 || r2);
+                } else {
+                    isRefine = this->is_remesh();
+                }
+            } else {
+                isRefine =
+                    bssn::isReMeshWAMR(m_uiMesh, (const double**)unzipVar,
+                                       refineVarIds, bssn::BSSN_NUM_REFINE_VARS,
+                                       waveletTolFunc, bssn::BSSN_DENDRO_AMR_FAC);
+            }
             if (isRefine) bssn::mesh_replay::record_init_flags(m_uiMesh, iterCount);
         }
 
