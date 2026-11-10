@@ -98,3 +98,15 @@ BH positions 5e-14, C_HAM 5e-11, psi4 l2m2 1.5e-11, l3m2 2.8e-11; 86 remeshes on
 - Exact algebraic identities used in the contracted H (validated to ~4e-13 vs the generated bracket, cuda/gen/ham_contracted.py):
   gi^{ij} g_ki d_j Gt^k = div Gt (only d_x Gt^x + d_y Gt^y + d_z Gt^z needed, not all 9);  gi^{ij} C1_{ijk} = (1/2) d_k ln det g;
   gi^{ij} Rphi_ij = (2/chi)(L - CalGt.grad chi) - 5/(2 chi^2) Q   (L = gi^{lm} d_l d_m chi, Q = gi^{lm} d_l chi d_m chi).
+
+## CAHD contracted-Hamiltonian kernel (DENDRO_GPU_CAHD_MODE=2, default) -- measured 2026-11-10
+Hand-contracted H (cuda/gen/ham_contracted.py; validated vs the generated bracket to 3.6e-13 on random inputs) instead of the 622-temporary
+generated expression. cuobjdump: cahd_fused_c REG=168, STACK=192 B (generated fused kernel: STACK=2392 B, i.e. ~12x less spilling).
+Accuracy vs CPU(+CAHD), identical stage-2 inputs: chi RHS 2.3e-14, state after 1/2/5 steps 1.5e-11 (same as the generated versions).
+Production depth (q8, T=0.3, ~300 steps, same node, stepping phase ETS):
+  CAHD off 29.1 s | mode 1 (generated, fused) 36.2 s (+24%) | **mode 2 (contracted, default) 32.6 s (+12%)**   [first version: +40%]
+Modes: 0 = two-kernel generated path for all blocks (reference), 1 = fused generated bracket, 2 = fused contracted (default).
+Physical-boundary blocks (bflag != 0) always use the two-kernel generated path (one-sided stencils).
+Next idea (not exact vs CPU, opt-in only): with det(gt)=1 enforced, gi_ij d_l d_m g_ij = gi_ia gi_jb d_l g_ab d_m g_ij, which removes all
+second derivatives of the metric (only chi's remain); error = FD truncation of d d ln det g plus the det-deviation (~1e-7 at puncture
+init) -> must be measured before use.  Other lever: occupancy (343-thread CTAs at 168 regs -> 1 CTA/SM).
