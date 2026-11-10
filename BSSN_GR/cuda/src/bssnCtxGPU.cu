@@ -2147,6 +2147,11 @@ void BSSNCtxGPU::evolve_bh_loc() {
 #ifdef BSSN_EXTRACT_BH_LOCATIONS
     // early exit if we're at time step zero!
     if (m_bBHEvolved) return;
+    // Already advanced to this time (or later) by an interval-tracking call
+    // (DENDRO_BH_TRACK_FREQ) -> a lagged GW-snapshot call must not go back.
+    if (m_uiTinfo._m_uiStep != 0 && !m_uiBHTimeHistory.empty() &&
+        m_uiTinfo._m_uiT <= m_uiBHTimeHistory.back())
+        return;
 
     // step zero doesn't move the BHs, it only seeds the velocity and history
     // this->compute_constraint_variables();
@@ -2233,4 +2238,15 @@ void BSSNCtxGPU::dump_unzip_debug(unsigned int step, const std::string& dir) {
     cudaMemcpy(h.data(), m_var[VL::GPU_EV_UZ_IN].get_vec_ptr(),
                tot * sizeof(double), cudaMemcpyDeviceToHost);
     bssn::dump_unzip(m_uiMesh, h.data(), bssn::BSSN_NUM_VARS, step, dir);
+}
+
+int BSSNCtxGPU::device_to_host_beta_sync() {
+    if (!m_uiMesh->isActive()) return 0;
+    DVec& m_evar      = m_var[VL::CPU_EV];
+    DVec& m_dptr_evar = m_var[VL::GPU_EV];
+    const size_t per_var = m_evar.get_size() / bssn::BSSN_NUM_VARS;
+    const size_t off     = (size_t)bssn::VAR::U_BETA0 * per_var;
+    GPUDevice::device_to_host(m_evar.get_vec_ptr() + off,
+                              m_dptr_evar.get_vec_ptr() + off, 3 * per_var);
+    return 0;
 }

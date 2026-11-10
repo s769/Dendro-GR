@@ -94,6 +94,8 @@ class BSSNCtxGPU : public ts::Ctx<BSSNCtxGPU, DendroScalar, unsigned int> {
    public:
     /** debug: dump device-unzipped state (DENDRO_DUMP_STATE) */
     void dump_unzip_debug(unsigned int step, const std::string& dir);
+    /** copy only the 3 shift variables device->host (for BH tracking) */
+    int device_to_host_beta_sync();
     /**@brief: default constructor*/
     BSSNCtxGPU(ot::Mesh* pMesh);
 

@@ -15,9 +15,13 @@ Method: frozen mesh (no remesh), per-step state / unzip / stage-1 RHS dumps from
 3. **Not implemented on GPU (guarded):** CAHD (`BSSN_CAHD_C`, default 0 -> GPU now aborts if nonzero) and CAKO
    (`BSSN_CAKO_ENABLED`; driver enables it in some merger configs -> GPU prints a warning, uses plain KO).
    Neither is on in the current par files.
-4. **BH tracking cadence differs:** CPU updates BH locations every step; GPU only at GW-extraction steps (coarser
-   integration). Waveform unaffected (frozen mesh); trajectory differs ~2.6e-3 abs, sep 3.5e-4 rel. Affects BH-based
-   refinement regions in adaptive runs. OPEN.
+4. **BH tracking cadence:** CPU updates BH locations every step; the ORIGINAL GPU driver only at GW-extraction steps
+   (verified in git f790d8a, same as ours). Trajectory differs ~2.6e-3 abs. New option `DENDRO_BH_TRACK_FREQ=N`
+   (default 0 = baseline behaviour; shift-only D2H every N steps; 1 = CPU cadence): N=1 reproduces the CPU trajectory
+   to 4e-15, N=5 gives 5.9e-4; waveform unaffected; no measurable wall-time cost on the smoke case.
+
+Note: CAHD / CAKO / SSL are absent from the ORIGINAL GPU kernels too (git f790d8a). SSL was added to match the CPU;
+`DENDRO_GPU_SSL=0` and `DENDRO_GPU_INIT_REFMODE=0` give original-GPU behaviour. CAHD/CAKO: guard only.
 
 ## Ruled out
 Unzip / hanging-node interpolation (device unzip differs from CPU only by the state difference), dx, KO stencils
@@ -31,3 +35,8 @@ C_HAM final equal. Remaining: BH trajectory (item 4).
 GPU runs before this fix started on a coarser init mesh (4964 vs 7512 elements) and solved a different gauge.
 Earlier GPU timings (esp. init-phase and early-step costs) should be re-measured; ensemble FD tables
 (`TIER1_FD.md`) were produced with the old GPU physics and need to be redone.
+
+## Adaptive validation (remesh test every 10 steps, BH_WAMR, GPU 4 ranks vs CPU 36 ranks, to t=12.5)
+psi4 l2m2 1.5e-11, l3m2 3.4e-11 rel-to-max; C_HAM 1.0100e-05 both (max differs 1.5e-4 rel);
+remesh rate 6.0 vs 6.1 per time unit. The earlier concern (constraints rising with remeshing) was a symptom of the
+gauge/mesh mismatches, not of remeshing.

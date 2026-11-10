@@ -514,6 +514,20 @@ int main(int argc, char** argv) {
             bssnCtx->prepare_for_next_iter();
 
             {
+                // BH tracking interval. Baseline GPU behaviour (default, =0):
+                // locations advance only at GW-extraction steps. The CPU driver
+                // advances them EVERY step. DENDRO_BH_TRACK_FREQ=N advances them
+                // every N steps from a shift-only D2H (1 = CPU cadence).
+                static const unsigned bh_track_freq = []() {
+                    const char* e = std::getenv("DENDRO_BH_TRACK_FREQ");
+                    return e ? (unsigned)atoi(e) : 0u;
+                }();
+                if (bh_track_freq > 0 && (step % bh_track_freq) == 0) {
+                    bssnCtx->device_to_host_beta_sync();
+                    bssnCtx->evolve_bh_loc();
+                }
+            }
+            {
                 std::string dsdir;
                 if (bssn::dump_state_wanted(step, dsdir)) {
                     bssnCtx->device_to_host_sync();
