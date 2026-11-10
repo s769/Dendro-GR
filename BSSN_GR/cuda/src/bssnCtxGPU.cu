@@ -20,6 +20,17 @@
 // CONST_MEM DEVICE_REAL device::refel_1d[2 * REFEL_CONST_MEM_MAX];
 
 namespace bssn {
+// Host-side unzip vectors are large (~5 GB/rank at production depth) and the
+// default path (device WAMR test + shell extraction) rarely needs them, so they
+// are created lazily after a remesh (DENDRO_EAGER_HOST_UNZIP=1 restores eager
+// creation in grid_transfer).
+static inline void ensure_host_unzip_vec(DVec& v, const ot::Mesh* mesh,
+                                         unsigned int nvars) {
+    if (v.get_vec_ptr() == nullptr)
+        v.create_vector(mesh, ot::DVEC_TYPE::OCT_LOCAL_WITH_PADDING,
+                        ot::DVEC_LOC::HOST, nvars, true);
+}
+
 BSSNCtxGPU::BSSNCtxGPU(ot::Mesh* pMesh) : Ctx() {
     m_uiMesh    = pMesh;
 
@@ -217,6 +228,7 @@ int BSSNCtxGPU::initialize() {
     DVec& m_evar_unz = m_var[VL::CPU_EV_UZ_IN];
 
     do {
+        ensure_host_unzip_vec(m_evar_unz, m_uiMesh, bssn::BSSN_NUM_VARS);
         this->unzip(m_evar, m_evar_unz, bssn::BSSN_ASYNC_COMM_K);
         m_evar_unz.to_2d(unzipVar);
         // isRefine=this->is_remesh();
@@ -503,6 +515,8 @@ int BSSNCtxGPU::write_vtu(bool extract) {
     DVec& m_evar_unz = m_var[VL::CPU_EV_UZ_IN];
     DVec& m_cvar     = m_var[VL::CPU_CV];
     DVec& m_cvar_unz = m_var[VL::CPU_CV_UZ_IN];
+    ensure_host_unzip_vec(m_cvar_unz, m_uiMesh, BSSN_CONSTRAINT_NUM_VARS);
+    ensure_host_unzip_vec(m_evar_unz, m_uiMesh, bssn::BSSN_NUM_VARS);
 
     if (gw_shell_only)
     {
@@ -1735,6 +1749,7 @@ bool BSSNCtxGPU::is_remesh() {
                !std::getenv("DENDRO_GPU_WAMR_VERIFY");
     }();
     if (!skip_host_unzip) {
+        ensure_host_unzip_vec(m_evar_unz, m_uiMesh, bssn::BSSN_NUM_VARS);
         this->unzip(m_evar, m_evar_unz, bssn::BSSN_ASYNC_COMM_K);
     } else if (m_uiMesh->isActive()) {
         // The host unzip also refreshed the ghost nodes of the host evolution
@@ -1859,11 +1874,18 @@ bool BSSNCtxGPU::is_remesh() {
                     done = true;
                 }
             }
-            if (!done)
+            if (!done) {
+                if (skip_host_unzip) {  // device path declined: need host data
+                    ensure_host_unzip_vec(m_evar_unz, m_uiMesh,
+                                          bssn::BSSN_NUM_VARS);
+                    this->unzip(m_evar, m_evar_unz, bssn::BSSN_ASYNC_COMM_K);
+                    m_evar_unz.to_2d(unzipVar);
+                }
                 isR2 = bssn::addRemeshWAMR(
                     m_uiMesh, (const double**)unzipVar, refineVarIds,
                     bssn::BSSN_NUM_REFINE_VARS, waveletTolFunc,
                     bssn::BSSN_DENDRO_AMR_FAC);
+            }
             isRefine = (isR1 || isR2);
         }
     }
@@ -1971,13 +1993,19 @@ int BSSNCtxGPU::grid_transfer(const ot::Mesh* m_new) {
     m_var[VL::CPU_CV].create_vector(m_new, ot::DVEC_TYPE::OCT_SHARED_NODES,
                                     ot::DVEC_LOC::HOST,
                                     BSSN_CONSTRAINT_NUM_VARS, true);
-    m_var[VL::CPU_CV_UZ_IN].create_vector(
-        m_new, ot::DVEC_TYPE::OCT_LOCAL_WITH_PADDING, ot::DVEC_LOC::HOST,
-        BSSN_CONSTRAINT_NUM_VARS, true);
+    static const bool eager_host_unz = []() {
+        const char* e = std::getenv("DENDRO_EAGER_HOST_UNZIP");
+        return e && e[0] == '1';
+    }();
+    if (eager_host_unz) {
+        m_var[VL::CPU_CV_UZ_IN].create_vector(
+            m_new, ot::DVEC_TYPE::OCT_LOCAL_WITH_PADDING, ot::DVEC_LOC::HOST,
+            BSSN_CONSTRAINT_NUM_VARS, true);
 
-    m_var[VL::CPU_EV_UZ_IN].create_vector(
-        m_new, ot::DVEC_TYPE::OCT_LOCAL_WITH_PADDING, ot::DVEC_LOC::HOST,
-        BSSN_NUM_VARS, true);
+        m_var[VL::CPU_EV_UZ_IN].create_vector(
+            m_new, ot::DVEC_TYPE::OCT_LOCAL_WITH_PADDING, ot::DVEC_LOC::HOST,
+            BSSN_NUM_VARS, true);
+    }
 
     m_var[VL::GPU_EV].create_vector(m_new, ot::DVEC_TYPE::OCT_SHARED_NODES,
                                     ot::DVEC_LOC::DEVICE, BSSN_NUM_VARS, true);

@@ -1,5 +1,7 @@
 /* TwoPunctures:  File  "TwoPunctures.c"*/
 
+#include <cstdio>
+#include <cstdlib>
 #include "TwoPunctures.h"
 
 #include <assert.h>
@@ -385,6 +387,46 @@ void TPStore(double *mp, double *mm, double *mp_adm, double *mm_adm, double *E,
             v.d22[j]    = 0.0;
             v.d23[j]    = 0.0;
             v.d33[j]    = 0.0;
+        }
+
+        /* DENDRO_TPID_WARM_START=<path of a solved *_tpid_sol.bin on the SAME
+           spectral grid>: use that solution as the Newton initial guess
+           instead of zero. For ensemble members whose parameters differ
+           slightly from the fiducial, Newton then needs ~1 iteration instead
+           of ~3 (each iteration is the dominant cost of the solve). */
+        if (const char *ws = std::getenv("DENDRO_TPID_WARM_START")) {
+            FILE *wf = std::fopen(ws, "rb");
+            int rank_ws = 0;
+            MPI_Comm_rank(TP_MPI_COMM, &rank_ws);
+            bool ok = false;
+            if (wf) {
+                int nt = 0;
+                size_t rd = std::fread(&nt, sizeof(int), 1, wf);
+                if (rd == 1 && nt == ntotal) {
+                    // skip F (ntotal-1 doubles) and u (10 arrays of ntotal)
+                    std::fseek(wf, (long)(sizeof(double)) * ((ntotal - 1) + 10L * ntotal),
+                               SEEK_CUR);
+                    double *arrs[10] = {v.d0,  v.d1,  v.d2,  v.d3,  v.d11,
+                                        v.d12, v.d13, v.d22, v.d23, v.d33};
+                    ok = true;
+                    for (int a = 0; a < 10 && ok; a++)
+                        ok = (std::fread(arrs[a], sizeof(double), ntotal, wf) ==
+                              (size_t)ntotal);
+                }
+                std::fclose(wf);
+            }
+            if (!rank_ws)
+                printf("INFO: TPID warm start from '%s': %s\n", ws,
+                       ok ? "loaded" : "FAILED (grid mismatch / unreadable), "
+                                       "falling back to zero initial guess");
+            if (!ok) {
+#pragma omp parallel for num_threads(TP_OMP_THREADS)
+                for (int j = 0; j < ntotal; j++) {
+                    v.d0[j] = v.d1[j] = v.d2[j] = v.d3[j] = 0.0;
+                    v.d11[j] = v.d12[j] = v.d13[j] = v.d22[j] = v.d23[j] =
+                        v.d33[j] = 0.0;
+                }
+            }
         }
 
         /* If bare masses are not given, iteratively solve for them given the
