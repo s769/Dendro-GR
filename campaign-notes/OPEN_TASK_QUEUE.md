@@ -43,3 +43,6 @@ Auto-launch armed (`watch_batch.sh` -> `run_next_batch.sh`, logs `tier0/watch_ba
 3. TwoPunctures cold vs warm start (`run_tp_warm.sh`; `DENDRO_TPID_WARM_START=<fiducial *_tpid_sol.bin>`), thread scaling 8 vs 36 — a cold TP solve at 4 threads is ~475 s/member (3 Newton iterations from |F|=5.5e-3); warm start expected ~1 iteration.
 Code built but UNTESTED: TPID warm start; lazy host unzip vectors after remesh (`DENDRO_EAGER_HOST_UNZIP=1` restores eager).
 Then: fine-resolution waveform FD (needs recorded fine fiducial + 4 replays; est >1 h of node time).
+
+## Storage rule
+All run output goes to `$SCRATCH` (`~/Dendro-GR-runs` is a symlink to `$SCRATCH/Dendro-GR-runs`). Home quota is ~46 GB.
