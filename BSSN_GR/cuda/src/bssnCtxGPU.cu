@@ -53,8 +53,8 @@ static __global__ void ssl_alpha_kernel(double* __restrict__ a_rhs,
 // ---------------------------------------------------------------------------
 static void gpu_apply_cahd(double* out, const double* in, BlockGPU3D* blk_dev,
                            unsigned int nblocks, unsigned int unzip_sz,
-                           double cahd_C, double dt) {
-    constexpr unsigned int NBATCH = 128, NX = 13, BLK_SZ = NX * NX * NX;
+                           double cahd_C, double dt, unsigned int n_bdy_blocks) {
+    constexpr unsigned int NBATCH = 512, NX = 13, BLK_SZ = NX * NX * NX;
     static BSSN_EVAR_DERIVS* d_ws = nullptr;
     static double* d_buf          = nullptr;
     static double* d_dummy        = nullptr;
@@ -77,11 +77,28 @@ static void gpu_apply_cahd(double* out, const double* in, BlockGPU3D* blk_dev,
         cudaMalloc(&d_ws, sizeof(BSSN_EVAR_DERIVS));
         cudaMemcpy(d_ws, &h, sizeof(BSSN_EVAR_DERIVS), cudaMemcpyHostToDevice);
     }
+    // Fused path (default) for blocks away from the physical boundary; the
+    // two-kernel path handles blocks with bflag != 0 (one-sided stencils).
+    // DENDRO_GPU_CAHD_FUSED=0: two-kernel path for ALL blocks (reference).
+    static const bool fused = []() {
+        const char* e = std::getenv("DENDRO_GPU_CAHD_FUSED");
+        return !(e && e[0] == '0');
+    }();
+    unsigned int bflag_only = 0;
+    if (fused) {
+        device::cahd_fused<3, NX><<<nblocks, 343>>>(out, in, blk_dev, nblocks,
+                                                    unzip_sz, cahd_C, dt);
+        // any block with a physical-boundary flag on this rank?
+        static const ot::Mesh* last_mesh = nullptr;
+        (void)last_mesh;
+        bflag_only = 1;
+        if (!n_bdy_blocks) return;
+    }
     for (unsigned int b0 = 0; b0 < nblocks; b0 += NBATCH) {
         const unsigned int nb = std::min(NBATCH, nblocks - b0);
         device::cahd_derivs<3, NX, 13><<<dim3(nb, bssn::BSSN_NUM_VARS, 1),
                                          dim3(13, 13, 1)>>>(
-            in, blk_dev + b0, nb, d_ws, unzip_sz);
+            in, blk_dev + b0, nb, d_ws, unzip_sz, bflag_only);
         // debug: DENDRO_CAHD_DUMPBLK=<global block id>[:call] dumps that block's
         // 72 CAHD derivative arrays (order of CAHD_DERIV_LIST) on the given call
         {
@@ -115,7 +132,7 @@ static void gpu_apply_cahd(double* out, const double* in, BlockGPU3D* blk_dev,
             }
         }
         device::cahd_chi_rhs<3, NX><<<nb, 343>>>(out, in, blk_dev + b0, nb,
-                                                 d_ws, unzip_sz, cahd_C, dt);
+                                                 d_ws, unzip_sz, cahd_C, dt, bflag_only);
     }
 }
 
@@ -1678,9 +1695,19 @@ int BSSNCtxGPU::rhs(DVec* in, DVec* out, unsigned int sz, DendroScalar time) {
                     (double)bssn::BSSN_RK45_TIME_STEP_SIZE, (double)m_uiTinfo._m_uiTh);
     }
     if (cahd_on && bssn::BSSN_CAHD_C != 0.0)
+    {
+        // number of local blocks touching the physical boundary (cached per mesh)
+        static const ot::Mesh* cm = nullptr; static unsigned int cn = 0, nb_cached = ~0u;
+        if (cm != m_uiMesh || nb_cached != nblocks) {
+            cn = 0;
+            for (const auto& b : m_uiMesh->getLocalBlockList())
+                if (b.getBlkNodeFlag() != 0) cn++;
+            cm = m_uiMesh; nb_cached = nblocks;
+        }
         gpu_apply_cahd(m_dptr_uz_o.get_vec_ptr(), m_dptr_uz_i.get_vec_ptr(),
                        m_mesh_cpu.m_blk_list, nblocks, unzip_sz,
-                       bssn::BSSN_CAHD_C, bssn::BSSN_RK45_TIME_STEP_SIZE);
+                       bssn::BSSN_CAHD_C, bssn::BSSN_RK45_TIME_STEP_SIZE, cn);
+    }
     {
         // CAKO is not implemented on the GPU (nor in the original port).
         static bool warned = false;

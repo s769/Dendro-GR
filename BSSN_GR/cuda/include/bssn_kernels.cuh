@@ -1125,7 +1125,8 @@ GLOBAL_FUNC __launch_bounds__(256, 2) void compute_all_derivs(
 template <int pw, unsigned int nx, int pencil_sz>
 GLOBAL_FUNC __launch_bounds__(256, 2) void cahd_derivs(
     const DEVICE_REAL* const dptr_u, BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
-    BSSN_EVAR_DERIVS* const dptr_deriv_evars, DEVICE_UINT szpdof_uz) {
+    BSSN_EVAR_DERIVS* const dptr_deriv_evars, DEVICE_UINT szpdof_uz,
+    DEVICE_UINT bflag_only) {
     SHARED_MEM DEVICE_REAL su[(pencil_sz) * (pencil_sz) * (pencil_sz)];
     const DEVICE_INT Z_ID = GPUDevice::block_id_x();
     const DEVICE_INT V_ID = GPUDevice::block_id_y();
@@ -1139,13 +1140,14 @@ GLOBAL_FUNC __launch_bounds__(256, 2) void cahd_derivs(
     const int pencils                                = pencil_sz;
     BSSN_EVAR_DERIVS* __restrict__ const deriv_evars = dptr_deriv_evars;
     BlockGPU3D c_blk                                 = dptr_blk[Z_ID];
+    if (bflag_only && c_blk.m_bflag == 0) return;  // fused kernel handles these
     const BlockGPU3D* __restrict__ const blk         = &c_blk;
     const DEVICE_UINT offset                         = blk->m_offset;
     const DEVICE_REAL* __restrict__ const var_in =
         &dptr_u[V_ID * sz_per_dof + offset];
     const DEVICE_UINT BLK_SZ = nx * nx * nx;
 
-#include "../scripts/compute_bssnrhs_evar_derivs2.cuh"
+#include "cahd_derivs_body.inc.cuh"
 }
 
 #include "cahd_gen.inc.cuh"
@@ -1155,9 +1157,10 @@ GLOBAL_FUNC __launch_bounds__(343) void cahd_chi_rhs(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
     const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
     const BSSN_EVAR_DERIVS* const ws, DEVICE_UINT szpdof_uz, DEVICE_REAL cahd_C,
-    DEVICE_REAL dt) {
+    DEVICE_REAL dt, DEVICE_UINT bflag_only) {
     const DEVICE_INT Z_ID = GPUDevice::block_id_x();
     if (Z_ID >= nblocks) return;
+    if (bflag_only && dptr_blk[Z_ID].m_bflag == 0) return;
     constexpr unsigned int NI = nx - 2 * pw;  // interior points per direction
     const unsigned int tid    = GPUDevice::thread_id_x();
     if (tid >= NI * NI * NI) return;
@@ -1198,6 +1201,52 @@ GLOBAL_FUNC __launch_bounds__(343) void cahd_chi_rhs(
 
     const DEVICE_REAL DENDRO_640 = (1.0 / 12.0) * chi[pp];
     dptr_Fu[bssn::VAR::U_CHI * sz_per_dof + offset + pp] +=
+        -cahd_C * DENDRO_18 * DENDRO_640 * cahd_bracket /
+        (dt * (10 * DENDRO_18 + 1));
+}
+
+// Fused CAHD for blocks away from the physical boundary (bflag == 0): one CTA per
+// block, one thread per interior point; all 72 derivative values live in
+// registers (variable-by-variable through shared memory), no HBM workspace.
+// Same stencils as the stock device derivative code (interior 6th order).
+template <int pw, unsigned int nx>
+GLOBAL_FUNC __launch_bounds__(343) void cahd_fused(
+    DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    DEVICE_REAL cahd_C, DEVICE_REAL dt) {
+    const DEVICE_INT Z_ID = GPUDevice::block_id_x();
+    if (Z_ID >= nblocks) return;
+    const BlockGPU3D blk = dptr_blk[Z_ID];
+    if (blk.m_bflag != 0) return;  // handled by cahd_derivs + cahd_chi_rhs
+    constexpr unsigned int NI = nx - 2 * pw;
+    const unsigned int tid    = GPUDevice::thread_id_x();  // blockDim.x == NI^3
+    const int i = pw + tid % NI;
+    const int j = pw + (tid / NI) % NI;
+    const int k = pw + tid / (NI * NI);
+    const DEVICE_UINT offset     = blk.m_offset;
+    const DEVICE_UINT sz_per_dof = szpdof_uz;
+    const DEVICE_UINT pp         = k * nx * nx + j * nx + i;
+    SHARED_MEM DEVICE_REAL s[nx * nx * nx];
+
+    const DEVICE_REAL ix60   = (1.0 / blk.m_dx[0]) / 60.0;
+    const DEVICE_REAL iy60   = (1.0 / blk.m_dx[1]) / 60.0;
+    const DEVICE_REAL iz60   = (1.0 / blk.m_dx[2]) / 60.0;
+    const DEVICE_REAL ixx180 = (1.0 / (blk.m_dx[0] * blk.m_dx[0])) / 180.0;
+    const DEVICE_REAL iyy180 = (1.0 / (blk.m_dx[1] * blk.m_dx[1])) / 180.0;
+    const DEVICE_REAL izz180 = (1.0 / (blk.m_dx[2] * blk.m_dx[2])) / 180.0;
+
+#include "cahd_fused_derivs.inc.cuh"
+
+#define CAHD_DECL_FIELD_S(NAME, VID) \
+    const DEVICE_REAL NAME = dptr_u[(size_t)bssn::VAR::VID * sz_per_dof + offset + pp];
+    CAHD_FIELD_LIST(CAHD_DECL_FIELD_S)
+#undef CAHD_DECL_FIELD_S
+
+    const DEVICE_REAL dx_i = fmin(fmin(blk.m_dx[0], blk.m_dx[1]), blk.m_dx[2]);
+    const DEVICE_REAL DENDRO_18 = dx_i * dx_i;
+#include "cahd_bracket_scalar.inc.cuh"
+    const DEVICE_REAL DENDRO_640 = (1.0 / 12.0) * chi;
+    dptr_Fu[(size_t)bssn::VAR::U_CHI * sz_per_dof + offset + pp] +=
         -cahd_C * DENDRO_18 * DENDRO_640 * cahd_bracket /
         (dt * (10 * DENDRO_18 + 1));
 }

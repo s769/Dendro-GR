@@ -68,3 +68,17 @@ evolved state, not only at step 0.
 Verified (CPU vs GPU, identical stage-2 inputs 1e-15): stage-2 chi RHS 2.3e-14, state after 1/2/5 steps 1.5e-11.
 Note: the stock GPU RHS kernels hard-code lambda={1,1,1,1}, lambda_f={1,0}; production par files use the same values
 (a different parameter file would silently diverge).
+
+## CAHD cost at production depth (q8, T=0.3 ~300 steps, 36 OMP/rank, same node, ETS = stepping phase)
+CAHD off: 29.5 s | two-kernel (derivative workspace) first version: 41.7 s (+40%) | trimmed (chi/Gt/gt only, no KO, batch 512):
+38.4 s (+30%; 37.8 s in the later A/B) | **fused single kernel (default, DENDRO_GPU_CAHD_FUSED=0 -> two-kernel): 36.0 s (+22%)**.
+nsys (first version): cahd_chi_rhs 3.6 s + cahd_derivs 3.1 s = 29% of all GPU kernel time, i.e. about the cost of the whole
+main RHS (eval_rhs3_pt_async 6.1 s). The derivative pass was HBM-write bound (72 full 13^3 arrays per block), but the fused
+kernel only gains ~24% of the overhead: it uses 168 regs and spills ~2.4 KB stack/thread (622 temporaries + 72 derivative
+values live), so the expression itself is the bottleneck. Further reduction needs the Hamiltonian expression restructured
+(shorter live ranges / hand-written conformal Ricci scalar) -- not done. Physical-boundary blocks (bflag != 0) use the
+two-kernel path (one-sided stencils). Accuracy of the fused kernel vs CPU: stage-2 chi RHS 2.9e-14, state 1.5e-11 after 5 steps.
+
+## End-to-end (adaptive, remesh/10, BH_WAMR, t<=13.8): GPU (init-mesh fix + SSL + CAHD + BH_TRACK_FREQ=1) vs CPU (CAHD)
+BH positions 5e-14, C_HAM 5e-11, psi4 l2m2 1.5e-11, l3m2 2.8e-11; 86 remeshes on both; GPU 165 s vs CPU 1262 s (36 ranks).
+(GPU before the fixes, no CAHD: psi4 2.5e-3 / 5.2e-3 off.)
