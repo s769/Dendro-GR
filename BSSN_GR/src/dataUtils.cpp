@@ -1602,4 +1602,62 @@ bool addRemeshWAMR(
     return isOctChange_g;
 }
 
+
+void waveletBoundaryOctants(ot::Mesh* pMesh, std::vector<unsigned char>& isBdy) {
+    const unsigned int b = pMesh->getElementLocalBegin();
+    const unsigned int e = pMesh->getElementLocalEnd();
+    isBdy.resize(e - b);
+    for (unsigned int ele = b; ele < e; ele++)
+        isBdy[ele - b] = pMesh->isBoundaryOctant(ele) ? 1 : 0;
+}
+
+bool addRemeshWAMR_lmax(
+    ot::Mesh* pMesh, const double* lmax_local,
+    std::function<double(double, double, double, double*)> wavelet_tol,
+    double amr_coarse_fac) {
+    std::vector<unsigned int> refine_flags = pMesh->getAllRefinementFlags();
+    const unsigned int eleLocalBegin       = pMesh->getElementLocalBegin();
+    const unsigned int eleLocalEnd         = pMesh->getElementLocalEnd();
+    bool isOctChange                       = false;
+    bool isOctChange_g                     = false;
+    const unsigned int eOrder              = pMesh->getElementOrder();
+    if (pMesh->isActive()) {
+        const ot::TreeNode* pNodes = pMesh->getAllElements().data();
+        for (unsigned int ele = eleLocalBegin; ele < eleLocalEnd; ele++) {
+            const double oct_dx =
+                (1u << (m_uiMaxDepth - pNodes[ele].getLevel())) /
+                (double(eOrder));
+            Point oct_pt1 = Point(pNodes[ele].minX(), pNodes[ele].minY(),
+                                  pNodes[ele].minZ());
+            Point oct_pt2 =
+                Point(pNodes[ele].minX() + oct_dx, pNodes[ele].minY() + oct_dx,
+                      pNodes[ele].minZ() + oct_dx);
+            Point domain_pt1, domain_pt2, dx_domain;
+            pMesh->octCoordToDomainCoord(oct_pt1, domain_pt1);
+            pMesh->octCoordToDomainCoord(oct_pt2, domain_pt2);
+            dx_domain      = domain_pt2 - domain_pt1;
+            double hx[3]   = {dx_domain.x(), dx_domain.y(), dx_domain.z()};
+            double tol_ele = wavelet_tol(domain_pt1.x(), domain_pt1.y(),
+                                         domain_pt1.z(), hx);
+            const double r_BH1 =
+                (domain_pt1 - BSSN_BH_LOC[0]).abs() / bssn::BSSN_BH1_AMR_R;
+            const double r_BH2 =
+                (domain_pt1 - BSSN_BH_LOC[1]).abs() / bssn::BSSN_BH2_AMR_R;
+            if (std::min(r_BH1, r_BH2) <= 1) tol_ele *= 1e12;
+
+            const double l_max = lmax_local[ele - eleLocalBegin];
+            if (l_max > tol_ele) {
+                refine_flags[(ele - eleLocalBegin)] = OCT_SPLIT;
+            } else if (refine_flags[(ele - eleLocalBegin)] == OCT_COARSE &&
+                       l_max >= amr_coarse_fac * tol_ele) {
+                refine_flags[(ele - eleLocalBegin)] = OCT_NO_CHANGE;
+            }
+        }
+        isOctChange = pMesh->setMeshRefinementFlags(refine_flags);
+    }
+    MPI_Allreduce(&isOctChange, &isOctChange_g, 1, MPI_CXX_BOOL, MPI_LOR,
+                  pMesh->getMPIGlobalCommunicator());
+    return isOctChange_g;
+}
+
 }  // end of namespace bssn

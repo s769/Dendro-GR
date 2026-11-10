@@ -101,6 +101,21 @@ bool addRemeshWAMR(
     double amr_coarse_fac, bool relative_WAMR = false);
 
 /**
+ * @brief addRemeshWAMR with the per-element WAMR metric precomputed (e.g. on
+ * the GPU): lmax_local[e - eleLocalBegin] = max over refine vars of
+ * RMS(relative wavelet coeffs). Applies exactly the flag logic of
+ * addRemeshWAMR (incl. 1e12 tolerance amplification inside the BH AMR radii).
+ */
+bool addRemeshWAMR_lmax(
+    ot::Mesh* pMesh, const double* lmax_local,
+    std::function<double(double, double, double, double*)> wavelet_tol,
+    double amr_coarse_fac);
+
+/** per-local-element flag: element is a domain-boundary octant. */
+void waveletBoundaryOctants(ot::Mesh* pMesh, std::vector<unsigned char>& isBdy);
+
+
+/**
  * @brief refine ratially based on the BH locations and AMR_R.
  * @param pMesh pointer to the mesh object.
  */

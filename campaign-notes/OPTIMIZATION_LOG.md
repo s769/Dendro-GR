@@ -82,3 +82,20 @@ Measured on q8 meshprobe (depth 15, 4 GPU, remesh test every 10 steps, mode 4, T
 | off (today) | 0 | 5.5 | host unzip 3.3 s wasted |
 | on (`DENDRO_GPU_BH_WAMR=1`) | 12/12 | 59.0 | test 26.7 s (host unzip 8.7 + BH/WAMR 18.0) + 12 actual remesh/grid-transfer ~27 s (~2.2 s each) |
 => correct adaptive behaviour costs ~10x the current GPU behaviour at this cadence, all host-side (host unzip, single-thread WAMR, remesh/grid transfer). This, not RHS, is the real production lever once BH_WAMR is on.
+
+## Device WAMR remesh test (matrix-free) — 2026-11-09
+`DENDRO_GPU_WAMR=1` (with `DENDRO_GPU_BH_WAMR=1`, mode BH_WAMR): the wavelet refinement test runs on the GPU from the device-unzipped state, no host unzip and no host `compute_wavelets_3D`.
+Kernel `wamr_lmax_kernel` (one CTA per element): interior octants: 7^3 coarse (every 2nd of the 13^3 block) -> degree-6 Lagrange prediction at the 6^3 odd points,
+wc=|u-pred|/max(1,|u|); boundary octants: 4^3 coarse -> degree-3 prediction at 3^3 points (27 coeffs, normalised by sqrt(216) as the host does); metric = sqrt(sum wc^2)/sqrt(216), max over the 24 refine vars.
+Host side `bssn::addRemeshWAMR_lmax` applies exactly the `addRemeshWAMR` flag logic (1e12 tol amplification inside BH AMR radii etc.) from the precomputed metrics.
+Validation (`DENDRO_GPU_WAMR_VERIFY=1`, host and device on identical input flags): **0 flag mismatches** over 12 tests x 4 ranks (host SPLIT counts 5..220/rank); psi4 of whole run agrees to 1e-18 abs.
+Pitfall found: skipping the host unzip also skipped the host ghost exchange of `m_evar`, which the host grid transfer needs (device RK never writes ghosts) -> NaN after the 2nd remesh; fixed with an explicit `readFromGhost` on the skip path.
+Also removed a redundant second device-mesh upload in `remesh_and_gridtransfer` (grid_transfer already rebuilt it for the new mesh; `DENDRO_REMESH_DOUBLE_UPLOAD=1` restores): psi4 identical (2e-19); device mesh alloc is only ~4 ms here, so negligible gain.
+
+Results, q8 meshprobe depth 15, 4 GPU, mode 4, remesh test every 10 steps (12 tests, 12 actual remeshes), psi4 every 10:
+| config | remesh test total | ETS (s) |
+|--------|------------------:|--------:|
+| host BH_WAMR (R2) | 26.3 s (host unzip 8.4 + host WAMR 17.9) | 82.6 |
+| device WAMR (R3) | **0.47 s** (56x) | **55.4** (-33%) |
+Remaining remesh cost: per event ReMesh 0.56-0.77 s + grid transfer ~0.5 s (max over ranks ~1.1-1.5 s) -> ~16 s of the 55.4 s; all host (octree ReMesh + new Mesh construction + host grid transfer).
+Recommended for adaptive production runs: `DENDRO_GPU_BH_WAMR=1 DENDRO_GPU_WAMR=1`.

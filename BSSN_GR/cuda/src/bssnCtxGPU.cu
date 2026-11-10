@@ -1547,6 +1547,156 @@ int BSSNCtxGPU::post_timestep(DVec& sIn) {
     return 0;
 }
 
+
+// ---------------------------------------------------------------------------
+// Matrix-free device WAMR metric (replaces host unzip + compute_wavelets_3D).
+// For each element/block and each refinement variable:
+//  interior octant: coarse = every 2nd point of the 13^3 unzipped block (7^3),
+//    degree-6 Lagrange prediction at the 6^3 odd points, wc = |u-pred|/max(1,|u|)
+//  boundary octant: coarse = 4^3 points at pw+2a (pw=3), degree-3 prediction at
+//    the 3^3 odd points of the interior (27 coeffs; host divides by sqrt(216))
+// metric = sqrt(sum wc^2)/sqrt(216); out[b] = max over vars. Matches
+// WaveletEl::compute_wavelets_3D (non-relative WAMR) up to rounding.
+// ---------------------------------------------------------------------------
+__constant__ double c_wamrWn[6][7];
+__constant__ double c_wamrWb[3][4];
+
+__global__ void wamr_lmax_kernel(const double* __restrict__ uz,
+                                 size_t unzip_sz,
+                                 const unsigned int* __restrict__ offs,
+                                 const unsigned char* __restrict__ bdy,
+                                 const unsigned int* __restrict__ vids,
+                                 int nv, double* __restrict__ out) {
+    const unsigned int b   = blockIdx.x;
+    const unsigned int off = offs[b];
+    const bool isb         = bdy[b] != 0;
+    __shared__ double cs[343];
+    __shared__ double red[256];
+    const unsigned int tid = threadIdx.x;
+    double lmax            = 0.0;
+    for (int vi = 0; vi < nv; vi++) {
+        const double* u = uz + (size_t)vids[vi] * unzip_sz + off;
+        if (!isb) {
+            for (unsigned int t = tid; t < 343; t += blockDim.x) {
+                const unsigned int a = t % 7, bb = (t / 7) % 7, c = t / 49;
+                cs[t] = u[(2 * c) * 169 + (2 * bb) * 13 + 2 * a];
+            }
+        } else {
+            for (unsigned int t = tid; t < 64; t += blockDim.x) {
+                const unsigned int a = t % 4, bb = (t / 4) % 4, c = t / 16;
+                cs[t] = u[(3 + 2 * c) * 169 + (3 + 2 * bb) * 13 + 3 + 2 * a];
+            }
+        }
+        __syncthreads();
+        double w2 = 0.0;
+        if (!isb && tid < 216) {
+            const unsigned int i = tid % 6, j = (tid / 6) % 6, k = tid / 36;
+            double pred = 0.0;
+            for (int c = 0; c < 7; c++) {
+                double sb = 0.0;
+                for (int bb = 0; bb < 7; bb++) {
+                    double sa = 0.0;
+                    for (int a = 0; a < 7; a++)
+                        sa += c_wamrWn[i][a] * cs[c * 49 + bb * 7 + a];
+                    sb += c_wamrWn[j][bb] * sa;
+                }
+                pred += c_wamrWn[k][c] * sb;
+            }
+            const double in =
+                u[(2 * k + 1) * 169 + (2 * j + 1) * 13 + 2 * i + 1];
+            const double wc = fabs(in - pred) / fmax(1.0, fabs(in));
+            w2              = wc * wc;
+        } else if (isb && tid < 27) {
+            const unsigned int i = tid % 3, j = (tid / 3) % 3, k = tid / 9;
+            double pred = 0.0;
+            for (int c = 0; c < 4; c++) {
+                double sb = 0.0;
+                for (int bb = 0; bb < 4; bb++) {
+                    double sa = 0.0;
+                    for (int a = 0; a < 4; a++)
+                        sa += c_wamrWb[i][a] * cs[c * 16 + bb * 4 + a];
+                    sb += c_wamrWb[j][bb] * sa;
+                }
+                pred += c_wamrWb[k][c] * sb;
+            }
+            const double in = u[(3 + 2 * k + 1) * 169 + (3 + 2 * j + 1) * 13 +
+                                3 + 2 * i + 1];
+            const double wc = fabs(in - pred) / fmax(1.0, fabs(in));
+            w2              = wc * wc;
+        }
+        red[tid] = w2;
+        __syncthreads();
+        for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+            if (tid < s) red[tid] += red[tid + s];
+            __syncthreads();
+        }
+        if (tid == 0) {
+            const double m = sqrt(red[0]) / sqrt(216.0);
+            if (m > lmax || m != m) lmax = m;
+        }
+        __syncthreads();
+    }
+    if (tid == 0) out[b] = lmax;
+}
+
+// Lagrange weights on integer nodes 0..n-1 evaluated at x.
+static void wamr_lagrange_row(int n, double x, double* w) {
+    for (int a = 0; a < n; a++) {
+        double L = 1.0;
+        for (int c = 0; c < n; c++)
+            if (c != a) L *= (x - c) / (double)(a - c);
+        w[a] = L;
+    }
+}
+
+/** per-local-element WAMR metric on the device. Returns false if unsupported. */
+static bool gpu_wamr_lmax(ot::Mesh* mesh, const double* dptr_uz,
+                          const unsigned int* refineVarIds, unsigned int nvars,
+                          std::vector<double>& lmax) {
+    const std::vector<ot::Block>& bl = mesh->getLocalBlockList();
+    const unsigned int N             = bl.size();
+    if (mesh->getElementOrder() != 6 || N != mesh->getNumLocalMeshElements())
+        return false;
+    static bool init = false;
+    if (!init) {
+        double Wn[6][7], Wb[3][4];
+        for (int i = 0; i < 6; i++) wamr_lagrange_row(7, i + 0.5, Wn[i]);
+        for (int i = 0; i < 3; i++) wamr_lagrange_row(4, i + 0.5, Wb[i]);
+        cudaMemcpyToSymbol(c_wamrWn, Wn, sizeof(Wn));
+        cudaMemcpyToSymbol(c_wamrWb, Wb, sizeof(Wb));
+        init = true;
+    }
+    std::vector<unsigned int> h_off(N);
+    std::vector<unsigned char> h_bdy;
+    bssn::waveletBoundaryOctants(mesh, h_bdy);
+    const unsigned int lB = mesh->getElementLocalBegin();
+    for (unsigned int b = 0; b < N; b++) {
+        if (bl[b].getLocalElementBegin() != lB + b) return false;
+        h_off[b] = bl[b].getOffset();
+    }
+    unsigned int *d_off, *d_vid;
+    unsigned char* d_bdy;
+    double* d_out;
+    cudaMalloc(&d_off, N * sizeof(unsigned int));
+    cudaMalloc(&d_bdy, N);
+    cudaMalloc(&d_vid, nvars * sizeof(unsigned int));
+    cudaMalloc(&d_out, N * sizeof(double));
+    cudaMemcpy(d_off, h_off.data(), N * sizeof(unsigned int),
+               cudaMemcpyHostToDevice);
+    cudaMemcpy(d_bdy, h_bdy.data(), N, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_vid, refineVarIds, nvars * sizeof(unsigned int),
+               cudaMemcpyHostToDevice);
+    wamr_lmax_kernel<<<N, 256>>>(dptr_uz, mesh->getDegOfFreedomUnZip(), d_off,
+                                 d_bdy, d_vid, (int)nvars, d_out);
+    lmax.resize(N);
+    cudaMemcpy(lmax.data(), d_out, N * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaFree(d_off);
+    cudaFree(d_bdy);
+    cudaFree(d_vid);
+    cudaFree(d_out);
+    return cudaGetLastError() == cudaSuccess;
+}
+
 bool BSSNCtxGPU::is_remesh() {
     bool isRefine = false;
     if (bssn::BSSN_ENABLE_BLOCK_ADAPTIVITY) return false;
@@ -1565,7 +1715,24 @@ bool BSSNCtxGPU::is_remesh() {
             .count();
     };
     const double trm0 = tm_rm ? tmn() : 0.0;
-    this->unzip(m_evar, m_evar_unz, bssn::BSSN_ASYNC_COMM_K);
+    // Device WAMR path (BH_WAMR + DENDRO_GPU_BH_WAMR=1 + DENDRO_GPU_WAMR=1, no
+    // verify) needs no host unzip at all.
+    static const bool skip_host_unzip = []() {
+        const char* a = std::getenv("DENDRO_GPU_BH_WAMR");
+        const char* b = std::getenv("DENDRO_GPU_WAMR");
+        return bssn::BSSN_REFINEMENT_MODE == bssn::RefinementMode::BH_WAMR &&
+               a && a[0] == '1' && b && b[0] == '1' &&
+               !std::getenv("DENDRO_GPU_WAMR_VERIFY");
+    }();
+    if (!skip_host_unzip) {
+        this->unzip(m_evar, m_evar_unz, bssn::BSSN_ASYNC_COMM_K);
+    } else if (m_uiMesh->isActive()) {
+        // The host unzip also refreshed the ghost nodes of the host evolution
+        // vectors, which the (host) grid transfer after a remesh relies on:
+        // the device RK update never writes ghosts. Do just the exchange.
+        m_uiMesh->readFromGhostBegin(m_evar.get_vec_ptr(), m_evar.get_dof());
+        m_uiMesh->readFromGhostEnd(m_evar.get_vec_ptr(), m_evar.get_dof());
+    }
 
     DendroScalar* unzipVar[BSSN_NUM_VARS];
     m_evar_unz.to_2d(unzipVar);
@@ -1630,10 +1797,63 @@ bool BSSNCtxGPU::is_remesh() {
             const bool isR1 = bssn::isRemeshBH(m_uiMesh, m_uiBHLoc,
                                                this->get_bh_loc_history(),
                                                this->get_bh_loc_time_history());
-            const bool isR2 = bssn::addRemeshWAMR(
-                m_uiMesh, (const double**)unzipVar, refineVarIds,
-                bssn::BSSN_NUM_REFINE_VARS, waveletTolFunc,
-                bssn::BSSN_DENDRO_AMR_FAC);
+            static const bool dev_wamr = []() {
+                const char* e = std::getenv("DENDRO_GPU_WAMR");
+                return e && e[0] == '1' && e[1] == '\0';
+            }();
+            static const bool dev_verify =
+                std::getenv("DENDRO_GPU_WAMR_VERIFY") != nullptr;
+            bool isR2 = false;
+            bool done = false;
+            if (dev_wamr || dev_verify) {
+                std::vector<double> lmax;
+                this->unzip(m_var[VL::GPU_EV], m_var[VL::GPU_EV_UZ_IN],
+                            bssn::BSSN_ASYNC_COMM_K);
+                GPUDevice::device_synchronize();
+                if (gpu_wamr_lmax(m_uiMesh,
+                                  m_var[VL::GPU_EV_UZ_IN].get_vec_ptr(),
+                                  refineVarIds, bssn::BSSN_NUM_REFINE_VARS,
+                                  lmax)) {
+                    if (dev_verify) {
+                        // host reference on identical input flags
+                        const std::vector<unsigned int> base =
+                            m_uiMesh->getAllRefinementFlags();
+                        bssn::addRemeshWAMR(m_uiMesh,
+                                            (const double**)unzipVar,
+                                            refineVarIds,
+                                            bssn::BSSN_NUM_REFINE_VARS,
+                                            waveletTolFunc,
+                                            bssn::BSSN_DENDRO_AMR_FAC);
+                        const std::vector<unsigned int> hostf =
+                            m_uiMesh->getAllRefinementFlags();
+                        m_uiMesh->setMeshRefinementFlags(base);
+                        isR2 = bssn::addRemeshWAMR_lmax(
+                            m_uiMesh, lmax.data(), waveletTolFunc,
+                            bssn::BSSN_DENDRO_AMR_FAC);
+                        const std::vector<unsigned int> devf =
+                            m_uiMesh->getAllRefinementFlags();
+                        size_t nd = 0, nsplit = 0;
+                        for (size_t q = 0; q < devf.size(); q++) {
+                            nd += (devf[q] != hostf[q]);
+                            nsplit += (hostf[q] == OCT_SPLIT);
+                        }
+                        printf("[gpu-wamr-verify] rank %d elements %zu "
+                               "flag mismatches %zu (host SPLIT count %zu)\n",
+                               m_uiMesh->getMPIRank(), devf.size(), nd,
+                               nsplit);
+                    } else {
+                        isR2 = bssn::addRemeshWAMR_lmax(
+                            m_uiMesh, lmax.data(), waveletTolFunc,
+                            bssn::BSSN_DENDRO_AMR_FAC);
+                    }
+                    done = true;
+                }
+            }
+            if (!done)
+                isR2 = bssn::addRemeshWAMR(
+                    m_uiMesh, (const double**)unzipVar, refineVarIds,
+                    bssn::BSSN_NUM_REFINE_VARS, waveletTolFunc,
+                    bssn::BSSN_DENDRO_AMR_FAC);
             isRefine = (isR1 || isR2);
         }
     }
@@ -1709,8 +1929,16 @@ int BSSNCtxGPU::grid_transfer(const ot::Mesh* m_new) {
 #ifdef __PROFILE_CTX__
     m_uiCtxpt[ts::CTXPROFILE::GRID_TRASFER].start();
 #endif
+    static const bool gt_tm = std::getenv("DENDRO_TIME_REMESH") != nullptr;
+    auto gtn = []() {
+        return std::chrono::duration<double>(
+                   std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    };
+    const double g0 = gt_tm ? gtn() : 0.0;
     DVec& m_evar = m_var[VL::CPU_EV];
     DVec::grid_transfer(m_uiMesh, m_new, m_evar);
+    const double g1 = gt_tm ? gtn() : 0.0;
     ot::dealloc_mpi_ctx<DendroScalar>(m_uiMesh, m_mpi_ctx, BSSN_NUM_VARS,
                                       BSSN_ASYNC_COMM_K);
     ot::alloc_mpi_ctx<DendroScalar>(m_new, m_mpi_ctx, BSSN_NUM_VARS,
@@ -1750,6 +1978,7 @@ int BSSNCtxGPU::grid_transfer(const ot::Mesh* m_new) {
         m_new, ot::DVEC_TYPE::OCT_LOCAL_WITH_PADDING, ot::DVEC_LOC::DEVICE,
         BSSN_NUM_VARS, true);
 
+    const double g2 = gt_tm ? gtn() : 0.0;
 #ifdef __CUDACC__
     // the device keeps its own mesh copy; rebuild it for m_new before pushing
     {
@@ -1760,9 +1989,14 @@ int BSSNCtxGPU::grid_transfer(const ot::Mesh* m_new) {
         dptr_mesh = mesh_gpu->alloc_mesh_on_device(m_new);
     }
 #endif
+    const double g3 = gt_tm ? gtn() : 0.0;
 
     this->host_to_device_sync();
     m_uiIsETSSynced = false;
+    if (gt_tm && !m_new->getMPIRankGlobal())
+        printf("[grid-transfer-phases] DVec::grid_transfer=%.3fs mpi_ctx+vecs=%.3fs "
+               "device_mesh=%.3fs h2d=%.3fs\n",
+               g1 - g0, g2 - g1, g3 - g2, gtn() - g3);
 
 #ifdef __PROFILE_CTX__
     m_uiCtxpt[ts::CTXPROFILE::GRID_TRASFER].stop();
