@@ -5,10 +5,17 @@ source /opt/apps/lmod/lmod/init/bash 2>/dev/null || true
 source "$HOME/Dendro-GR/campaign-notes/env_build_horizon.sh" >/dev/null; unset CUDA_VISIBLE_DEVICES
 TEND=${TEND:-110}; OUT=$HOME/Dendro-GR-runs/resstudy2; mkdir -p $OUT
 BIN=$DENDRO_BUILD/BSSN_GR/bssnSolverCUDA
+# one shared TwoPunctures solve for the production q1 parameters (solver needs a pre-solved file; identical IC for every variant)
+TPD=$OUT/tp; mkdir -p $TPD
+if [ ! -f $TPD/tp_q001_tpid_sol.bin ]; then
+  cp $HOME/Dendro-GR/BSSN_GR/pars/q1.par.toml $TPD/q1.par.toml; ( cd $TPD; mkdir -p aeh bah cp dat vtu; env OMP_NUM_THREADS=36 TP_OMP_THREADS=36 $DENDRO_BUILD/BSSN_GR/tpid q1.par.toml 36 > tpid.log 2>&1 )
+fi
+[ -f $TPD/tp_q001_tpid_sol.bin ] || { echo "TPID solve failed (see $TPD/tpid.log)"; exit 1; }
 for spec in $1; do
   IFS=: read name cap tol gpu <<< "$spec"
   gwf=$(( 8 * (1 << (cap - 11)) ))        # constant sample interval dT = 0.5208 M for every cap
   d=$OUT/${name}_T${TEND}; rm -rf $d; mkdir -p $d/{aeh,bah,cp,dat,vtu}; cp $HOME/Dendro-GR/BSSN_GR/pars/q1.par.toml $d/local.par.toml
+  ln -sfn $TPD/tp_q001_tpid_sol.bin $d/tp_q001_tpid_sol.bin
   python3 - <<PY
 import re
 from pathlib import Path

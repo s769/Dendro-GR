@@ -83,7 +83,7 @@ two-kernel path (one-sided stencils). Accuracy of the fused kernel vs CPU: stage
 BH positions 5e-14, C_HAM 5e-11, psi4 l2m2 1.5e-11, l3m2 2.8e-11; 86 remeshes on both; GPU 165 s vs CPU 1262 s (36 ranks).
 (GPU before the fixes, no CAHD: psi4 2.5e-3 / 5.2e-3 off.)
 
-## CAHD theory notes (for kernel design)  -- source: arXiv:2404.01137 (Eq. 26) + CodeGen/bssn.py
+## CAHD theory notes (for kernel design)  -- source: CodeGen/bssn.py (the term actually implemented, 'WKB method') + arXiv:2404.01137 (Eq. 26; a RELATED method from a different group, NOT a Dendro-GR paper: CAHD in the code's alternative 'Etienne method' branch uses its form; Dendro-GR's default is the WKB variant with dx^2/(1+10 dx^2)/dt)
 - Added to the conformal-factor equation: chi_rhs += C * chi * (dx_i^2/(1+10 dx_i^2)) / dt * H  (the "WKB" variant used by
   the CPU code; paper form: -C*dt_n*[CFL0*ds_n/dt_n]*H_-).  H = chi*gt^{jk}R_jk - At_ij At^ij + (2/3)K^2 (vacuum).
 - Why: H violations act like an effective energy density and are largest at the sharp lapse pulse / strong field near the
