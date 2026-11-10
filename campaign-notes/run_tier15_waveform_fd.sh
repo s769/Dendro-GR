@@ -39,7 +39,8 @@ runit() { # tag gpu mode
   local d="${OUT}/$1"
   ( cd "$d"; local s=$(date +%s)
     if [[ "$3" == record ]]; then E="DENDRO_MESH_RECORD=${REC}"; else E="DENDRO_MESH_REPLAY=${REC}"; fi
-    CUDA_VISIBLE_DEVICES=$2 mpirun -np 1 env OMP_NUM_THREADS=${OMPT:-1} DENDRO_RHS_PT_ASYNC=1 ${XENV:-} $E "$BIN" local.par.toml 1 > run.log 2>&1
+    OM=${OMPT:-1}; [[ "$3" == record ]] && OM=${OMPT_FID:-$OM}
+    CUDA_VISIBLE_DEVICES=$2 mpirun -np 1 env OMP_NUM_THREADS=$OM DENDRO_RHS_PT_ASYNC=1 ${XENV:-} $E "$BIN" local.par.toml 1 > run.log 2>&1
     echo "$1 gpu$2 wall=$(( $(date +%s)-s ))s $(grep -E 'ETS time' run.log | tail -1)" ) 
 }
 echo "RES=$RES TEND=$TEND RFREQ=$RFREQ RADII=$RADII EPSS=$EPSS $(date -Is) $(hostname)"
