@@ -1265,8 +1265,8 @@ __device__ __forceinline__ constexpr int sym(int i, int j) {
 }
 }  // namespace cahd_c
 
-template <int pw, unsigned int nx>
-GLOBAL_FUNC __launch_bounds__(343) void cahd_fused_c(
+template <int pw, unsigned int nx, int MINB = 1>
+GLOBAL_FUNC __launch_bounds__(343, MINB) void cahd_fused_c(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
     const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
     DEVICE_REAL cahd_C, DEVICE_REAL dt) {

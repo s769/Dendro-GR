@@ -1,0 +1,2 @@
+ _ZN6device12cahd_fused_cILi3ELj13ELi2EEEvPdPKdPK10BlockGPU3Djjdd:	 REG=80 STACK=1184
+ _ZN6device12cahd_fused_cILi3ELj13ELi1EEEvPdPKdPK10BlockGPU3Djjdd:	 REG=168 STACK=192

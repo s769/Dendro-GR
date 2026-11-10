@@ -53,7 +53,8 @@ static __global__ void ssl_alpha_kernel(double* __restrict__ a_rhs,
 // ---------------------------------------------------------------------------
 static void gpu_apply_cahd(double* out, const double* in, BlockGPU3D* blk_dev,
                            unsigned int nblocks, unsigned int unzip_sz,
-                           double cahd_C, double dt, unsigned int n_bdy_blocks) {
+                           double cahd_C, double dt, unsigned int n_bdy_blocks,
+                           unsigned long long bdy_hash) {
     constexpr unsigned int NBATCH = 512, NX = 13, BLK_SZ = NX * NX * NX;
     static BSSN_EVAR_DERIVS* d_ws = nullptr;
     static double* d_buf          = nullptr;
@@ -93,16 +94,37 @@ static void gpu_apply_cahd(double* out, const double* in, BlockGPU3D* blk_dev,
     unsigned int bflag_only = 0;
     if (fused) {
         if (mode == 2)
-            device::cahd_fused_c<3, NX><<<nblocks, 343>>>(out, in, blk_dev, nblocks,
-                                                          unzip_sz, cahd_C, dt);
+            device::cahd_fused_c<3, NX, 1><<<nblocks, 343>>>(out, in, blk_dev, nblocks,
+                                                             unzip_sz, cahd_C, dt);
+        else if (mode == 3)  // same kernel, 2 CTAs/SM launch bound (<=95 regs)
+            device::cahd_fused_c<3, NX, 2><<<nblocks, 343>>>(out, in, blk_dev, nblocks,
+                                                             unzip_sz, cahd_C, dt);
         else
             device::cahd_fused<3, NX><<<nblocks, 343>>>(out, in, blk_dev, nblocks,
                                                         unzip_sz, cahd_C, dt);
         // any block with a physical-boundary flag on this rank?
         static const ot::Mesh* last_mesh = nullptr;
         (void)last_mesh;
-        bflag_only = 1;
+        bflag_only = 0;                  // boundary blocks are compacted below: run them unconditionally
         if (!n_bdy_blocks) return;
+        // compact list of the physical-boundary blocks (device copies of their BlockGPU3D), rebuilt per mesh
+        static BlockGPU3D* d_bdy = nullptr; static unsigned int bdy_cap = 0, bdy_n = 0;
+        static unsigned long long bdy_key = 0; static unsigned int bdy_nblocks = ~0u;
+        if (bdy_key != bdy_hash || bdy_nblocks != nblocks) {
+            if (bdy_cap < n_bdy_blocks) {
+                if (d_bdy) cudaFree(d_bdy);
+                bdy_cap = n_bdy_blocks + 64;
+                cudaMalloc(&d_bdy, (size_t)bdy_cap * sizeof(BlockGPU3D));
+            }
+            std::vector<BlockGPU3D> hb(nblocks);
+            cudaMemcpy(hb.data(), blk_dev, (size_t)nblocks * sizeof(BlockGPU3D), cudaMemcpyDeviceToHost);
+            std::vector<BlockGPU3D> sel; sel.reserve(n_bdy_blocks);
+            for (unsigned int q = 0; q < nblocks; q++) if (hb[q].m_bflag != 0) sel.push_back(hb[q]);
+            bdy_n = (unsigned int)sel.size();
+            cudaMemcpy(d_bdy, sel.data(), (size_t)bdy_n * sizeof(BlockGPU3D), cudaMemcpyHostToDevice);
+            bdy_key = bdy_hash; bdy_nblocks = nblocks;
+        }
+        blk_dev = d_bdy; nblocks = bdy_n;   // the loop below now covers just the boundary blocks
     }
     for (unsigned int b0 = 0; b0 < nblocks; b0 += NBATCH) {
         const unsigned int nb = std::min(NBATCH, nblocks - b0);
@@ -1706,17 +1728,21 @@ int BSSNCtxGPU::rhs(DVec* in, DVec* out, unsigned int sz, DendroScalar time) {
     }
     if (cahd_on && bssn::BSSN_CAHD_C != 0.0)
     {
-        // number of local blocks touching the physical boundary (cached per mesh)
-        static const ot::Mesh* cm = nullptr; static unsigned int cn = 0, nb_cached = ~0u;
-        if (cm != m_uiMesh || nb_cached != nblocks) {
-            cn = 0;
-            for (const auto& b : m_uiMesh->getLocalBlockList())
-                if (b.getBlkNodeFlag() != 0) cn++;
-            cm = m_uiMesh; nb_cached = nblocks;
+        // physical-boundary blocks of this rank: count + hash of the flag sequence (cheap, every call, so a remesh
+        // that reuses addresses/counts can never leave a stale compacted list)
+        unsigned int cn = 0; unsigned long long hh = 1469598103934665603ull;
+        {
+            unsigned int idx = 0;
+            for (const auto& b : m_uiMesh->getLocalBlockList()) {
+                const unsigned int f = b.getBlkNodeFlag();
+                if (f != 0) { cn++; hh = (hh ^ ((unsigned long long)idx * 1000003ull + f)) * 1099511628211ull; }
+                idx++;
+            }
+            hh ^= (unsigned long long)idx;
         }
         gpu_apply_cahd(m_dptr_uz_o.get_vec_ptr(), m_dptr_uz_i.get_vec_ptr(),
                        m_mesh_cpu.m_blk_list, nblocks, unzip_sz,
-                       bssn::BSSN_CAHD_C, bssn::BSSN_RK45_TIME_STEP_SIZE, cn);
+                       bssn::BSSN_CAHD_C, bssn::BSSN_RK45_TIME_STEP_SIZE, cn, hh);
     }
     {
         // The generated CUDA RHS kernels hard-code lambda, lambda_f and the RIT eta

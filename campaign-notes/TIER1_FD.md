@@ -120,3 +120,22 @@ Reference eps=3e-3, complex dpsi4_22/dm, relative L2 difference over the common 
 
 **FD plateau: flat (<1%) for eps in [3e-4, 3e-3]; eps=1e-2 shows 2-7% truncation bias.** Recommended inversion FD step for BH1.MASS about 0.48: eps ~1e-3 (central).
 Still caveated: coarse resolution, unphysical burst-dominated window, single parameter. Fine-resolution waveform FD not done.
+
+## Waveform FD with PRODUCTION PHYSICS (2026-11-10) -- supersedes the earlier tables (those used the wrong GPU physics)
+Setup: q1 smoke (coarse) / q1 smoke_hfine (fine), BH1.MASS perturbed by +-eps (0.001, 0.003), frozen recorded mesh (replay), T=26 (< 27, avoids the
+step-420 mesh blow-up), GPU = init-mesh fix + SSL + CAHD (BSSN_CAHD_C=0.06, contracted kernel) + shell-only psi4 extraction, GW radii 10..25.
+Fine run: remesh test every 50 steps (production value), extraction every 8 steps; fiducial 1087 s (36 OMP), replays 1900-1980 s (4 concurrent, 8 OMP each).
+Central FD d(psi4_22)/d(BH1.MASS), eps-plateau = ||dz(eps=.001)-dz(eps=.003)||/||dz(eps=.001)||:
+| radius | coarse (with CAHD) plateau | fine (with CAHD) plateau |
+|---|---|---|
+| 25 (outer) | 5.6e-4 | **4.8e-5** |
+| 18 (idx 3) | 7.6e-3 | 2.6e-3 |
+| 10 (idx 0) | 3.9e-3 | 5.5e-3 (wave not fully past, noisy) |
+Outer radius, late-time (last 25%) mean d(phi)/dm: fine -0.480229 (eps .001) vs -0.480238 (eps .003) (2e-5 relative);
+coarse -0.467352 / -0.467361.  => the FD derivative is clean at the outer radius and improves ~12x with resolution; the coarse-vs-fine difference of
+the derivative itself (2.7%) is the discretization error of the Jacobian at coarse resolution.
+(Coarse WITHOUT CAHD earlier today gave -0.480310/-0.480318 at r=25; CAHD changes the coarse phase derivative by ~2.7%.)
+Caveats: coarse replays were truncated at t=25.78 (node expiry; analysis used the common length); fiducial and replays used different thread counts
+(no effect on the physics). Only one parameter (BH1 mass) and psi4_22 phase/amplitude.
+Performance note: replay cost is dominated by host Mesh reconstruction at each replayed remesh (single rank, large mesh), not by the GPU solver --
+building each recorded mesh once and sharing it across ensemble members would remove most of it.
