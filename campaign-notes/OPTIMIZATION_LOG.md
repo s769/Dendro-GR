@@ -129,3 +129,18 @@ Env summary for adaptive production runs: `DENDRO_GPU_BH_WAMR=1 DENDRO_GPU_WAMR=
 ## DEFAULT CHANGE (2026-11-09, your decision): GPU BH_WAMR remeshing + device WAMR are now ON by default
 `BSSN_REFINEMENT_MODE=4` runs on the GPU now remesh like the CPU driver. Opt out: `DENDRO_GPU_BH_WAMR=0` (old no-remesh behaviour), `DENDRO_GPU_WAMR=0` (host WAMR test). Verified default-on: meshprobe mode 4, 12/12 remeshes, ETS 28.0 s.
 Still to do: a longer-run physics comparison of GPU adaptive vs CPU path (only short windows checked so far).
+
+## Initial-data evaluation (`init_grid`) parallelised (2026-11-09)
+At production depth every simulation spent ~584 s of host time, single-threaded, in `BSSNCtxGPU::init_grid()` after the init-mesh convergence (TwoPunctures spectral interpolation at every local node;
+nothing printed during it — time to first step was ~700 s of which only ~110 s was the 7 init WAMR/remesh iterations). Per-point `TwoPunctures()` is read-only after its first (collective) call and allocates its own scratch.
+`bssn::initialDataOnMeshOMP` (dataUtils.cpp, OpenMP over elements, thread-private outputs); `DENDRO_INIT_OMP=0` restores the serial loop.
+Measured (production-depth q8, 4 GPU, 8 OMP threads/rank): **init_grid 584 s -> 74 s (7.9x); time to first step ~700 s -> ~108 s**.
+psi4 vs the serial-init run (G2, matching times): max abs diff 1e-17 (|psi4| ~2.5e-7) for l2m2, 5e-19 for l3m2, 4e-19 for l4m4 (rounding).
+This cost is per simulation and per ensemble member (initial data differs per member), so it matters for the inversion campaign's turnaround, not for long-run throughput.
+(Two runs, G1/G3, were lost to my rebuilding the binary while they were starting; the numbers above come from clean runs G4/G5.)
+
+## Variable-batched unzip (`DENDRO_UNZIP_VB=<2|4|8>`, default off)
+`__unzip_cg1__2_vb`: one CTA handles VB consecutive variables of an element: e2n_cg indices read once and the CG gathers of all VB variables issued back-to-back (independent loads in flight),
+then the unchanged per-variable p2c + scatter from shared memory. Output matches the default to rounding (1e-17).
+Result (production-depth q8, 4 GPU, T=0.5 = 490 steps incl 9 remeshes + shell extraction, ETS): default 49.47 / 49.25 s (two runs); VB=2 51.96; VB=4 51.91; VB=8 55.79 (**+5% to +13% slower**).
+**NO-GO.** The larger shared-memory footprint per CTA (pre[VB][343]) costs more than the shared index loads / extra loads in flight save; the gather latency is not recoverable this way. Kept behind the env knob, default off.

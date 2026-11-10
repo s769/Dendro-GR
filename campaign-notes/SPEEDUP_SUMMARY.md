@@ -41,6 +41,13 @@ UCX transport knobs, unzip/exchange overlap, FP32 variants (parked), tensor core
 | production-depth q8 adaptive (35 remeshes, 1,729 steps) | 380.8 s | 190.4 s | 2.0x (7.5 s -> 1.4 s per remesh) |
 Adaptive vs non-adaptive production-depth run: 190.4 s vs 132.0 s (+44%); before the remesh work it was +189%.
 
+## Per-simulation fixed cost (production-depth q8, 4 GPU)
+| item | before | now |
+|------|-------:|----:|
+| `init_grid` initial-data evaluation (host, per simulation / ensemble member) | ~584 s | **74 s** (OpenMP, 8 threads/rank; 7.9x) |
+| time from launch to first step | ~700 s | **~108 s** (6.5x) |
+Var-batched unzip (`DENDRO_UNZIP_VB`): no-go (+5..13% slower). K-member batching of RHS/unzip/ghost: closed (see `BATCHING.md`).
+
 ## Biggest caveat
 GPU runs with production parameter files (`BSSN_REFINEMENT_MODE = 4`) never remesh (GPU `is_remesh` lacks BH_WAMR). With the gated fix (`DENDRO_GPU_BH_WAMR=1`) the first version ran ~10x slower on the meshprobe; after the device WAMR test and the block-setup fix the adaptive overhead is +44% at production depth (see above).
 The default is still OFF pending your decision; remeshing correctness over long runs has only been checked for short windows.

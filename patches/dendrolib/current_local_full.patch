@@ -1,5 +1,5 @@
 diff --git a/GPU/include/mesh_gpu.cuh b/GPU/include/mesh_gpu.cuh
-index 0808146..664cb7c 100644
+index 0808146..632f53e 100644
 --- a/GPU/include/mesh_gpu.cuh
 +++ b/GPU/include/mesh_gpu.cuh
 @@ -10,6 +10,9 @@
@@ -192,7 +192,7 @@ index 0808146..664cb7c 100644
                                       jjy * lx + iix] =
                                  dgVec[IDX_DG(tx, ty, tz)];
                      }
-@@ -1794,11 +1905,11 @@ GLOBAL_FUNC void __unzip_cg1__2(const MeshGPU* const dptr_mesh,
+@@ -1794,11 +1905,377 @@ GLOBAL_FUNC void __unzip_cg1__2(const MeshGPU* const dptr_mesh,
                                  std::round((zz - zmin) * invhh);
  
                              // if((kkz>=0 && kkz<lz))
@@ -203,10 +203,376 @@ index 0808146..664cb7c 100644
                              if ((kkz >= 0 && kkz < lz))
 -                                dptr_out[var * unzip_sz + offset +
 +                                dptr_out_k[var * unzip_sz + offset +
++                                         kkz * lx * ly + jjy * lx + iix] =
++                                    v3[1][IDX_DG(tx, ty, tz)];
++                        }
++                    }
++                }
++            }
++
++            // return;
++        }
++    }
++
++    GPUDevice::sync_threads();
++    }  // km ensemble share
++
++    return;
++}
++
++template <typename T, DEVICE_UINT p, DEVICE_UINT PW, DEVICE_UINT VB>
++GLOBAL_FUNC void __unzip_cg1__2_vb(const MeshGPU* const dptr_mesh,
++                                   const T* const dptr_in, T* const dptr_out,
++                                   const DEVICE_UINT* ele_ids,
++                                   DEVICE_UINT n_dof) {
++    // Variable-batched unzip: one CTA handles VB consecutive variables of an
++    // element. The CG gather for all VB variables is issued back-to-back
++    // (independent loads in flight; e2n_cg indices read once), then the
++    // original per-variable prolongation + scatter runs from shared memory.
++    // Arithmetic identical to __unzip_cg1__2 (K=1) => bit-identical output.
++    const DEVICE_UINT K = 1, in_member_stride = 0, out_member_stride = 0,
++                      sort_gather = 0;
++    // Optional remap: grid.x indexes into ele_ids (hanging/non-hanging split).
++    // Pass nullptr for contiguous [0, num_elements) launch.
++    // K>1: share refEL / element geometry across ensemble members (stride 0 =
++    // same buffer; timing / smoke). Production ensemble uses nonzero strides.
++    const DEVICE_UINT ele =
++        (ele_ids != nullptr) ? ele_ids[GPUDevice::block_id_x()]
++                             : static_cast<DEVICE_UINT>(GPUDevice::block_id_x());
++    // const DEVICE_UINT blk_id = GPUDevice::block_id_y();
++    const DEVICE_UINT var0     = GPUDevice::block_id_z() * VB;
++
++    const DEVICE_UINT tx       = GPUDevice::thread_id_x();
++    const DEVICE_UINT ty       = GPUDevice::thread_id_y();
++
++    const DEVICE_UINT porder   = dptr_mesh->m_ele_order;
++    const DEVICE_UINT unzip_sz = dptr_mesh->m_oct_unzip_sz;
++    const DEVICE_UINT cg_sz    = dptr_mesh->m_oct_shared_sz;
++    const DEVICE_UINT nx       = p + 1;
++    const DEVICE_UINT nPe      = nx * nx * nx;
++
++    SHARED_MEM T refEL[2][p + 1][p + 1];
++    // SHARED_MEM T dgVec[nPe];
++    // SHARED_MEM T v1[nPe];
++    SHARED_MEM T v2[nPe];
++    // v3[0] interp in , v3[1] interp out
++    SHARED_MEM T v3[2][nPe];
++    // Sort-by-cg gather (DENDRO_UNZIP_SORT_GATHER): permutation of local idxs.
++    SHARED_MEM DEVICE_UINT sort_idx[nPe];
++
++    // this will increase shared memory leading the low occupancy
++    // SHARED_MEM T u_refine[8][nPe];
++    // bool is_refine[8]={false, false, false, false, false, false, false,
++    // false};
++
++    T* dgVec                          = v3[0];
++    T* v1                             = v3[1];
++
++    const DEVICE_UINT max_depth       = dptr_mesh->m_max_depth;
++    const DEVICE_UINT* const e2n_cg   = dptr_mesh->m_e2n_cg;
++    const TNode3d elem_node           = dptr_mesh->m_all_elements[ele];
++    const DEVICE_FLOAT32 d_compar_tol = 1e-6;
++
++    HangingInfo hinfo_ele             = dptr_mesh->m_hinfo[ele];
++    DEVICE_UINT hflag                 = hinfo_ele.hflag;
++
++    // if(hflag!=0 || bLev > elem_node.m_level)
++    {
++        if (tx < nx && ty < nx) {
++            refEL[0][ty][tx] =
++                refel_1d[0 * (p + 1) * (p + 1) + ty * (p + 1) + tx];
++            refEL[1][ty][tx] =
++                refel_1d[1 * (p + 1) * (p + 1) + ty * (p + 1) + tx];
++        }
++    }
++
++    GPUDevice::sync_threads();
++
++    SHARED_MEM T pre[VB][nPe];
++    if (tx < nx && ty < nx) {
++#pragma unroll
++        for (DEVICE_INT tz = 0; tz < nx; tz++) {
++            const DEVICE_UINT gi = e2n_cg[ele * nPe + IDX_DG(tx, ty, tz)];
++            T g[VB];
++#pragma unroll
++            for (DEVICE_UINT vi = 0; vi < VB; vi++)
++                g[vi] = (var0 + vi < n_dof)
++                            ? dptr_in[(size_t)(var0 + vi) * cg_sz + gi]
++                            : (T)0;
++#pragma unroll
++            for (DEVICE_UINT vi = 0; vi < VB; vi++)
++                pre[vi][IDX_DG(tx, ty, tz)] = g[vi];
++        }
++    }
++    GPUDevice::sync_threads();
++
++    for (DEVICE_UINT vi = 0; vi < VB; ++vi) {
++    const DEVICE_UINT var = var0 + vi;
++    if (var >= n_dof) break;
++    const DEVICE_UINT km = 0;
++    const T* const dptr_in_k = dptr_in + km * in_member_stride;
++    T* const dptr_out_k = dptr_out + km * out_member_stride;
++
++    if (hflag != 0) {
++        if (sort_gather) {
++            // Load CG values in cg_id order (tighter adjacent jumps), then
++            // scatter into local DG slots for p2c.
++            const DEVICE_UINT tid =
++                tx + nx * ty;  // 0..nx*nx-1; also cover tz via loop
++            const DEVICE_UINT nthreads = nx * nx;
++            for (DEVICE_UINT t = tid; t < nPe; t += nthreads) sort_idx[t] = t;
++            GPUDevice::sync_threads();
++            // Odd-even transposition sort of sort_idx by e2n_cg[ele*nPe+idx].
++            for (DEVICE_UINT phase = 0; phase < nPe; ++phase) {
++                const DEVICE_UINT parity = phase & 1u;
++                for (DEVICE_UINT pair = tid; (2u * pair + parity + 1u) < nPe;
++                     pair += nthreads) {
++                    const DEVICE_UINT i  = 2u * pair + parity;
++                    const DEVICE_UINT ia = sort_idx[i];
++                    const DEVICE_UINT ib = sort_idx[i + 1];
++                    const DEVICE_UINT ca = e2n_cg[ele * nPe + ia];
++                    const DEVICE_UINT cb = e2n_cg[ele * nPe + ib];
++                    if (ca > cb) {
++                        sort_idx[i]     = ib;
++                        sort_idx[i + 1] = ia;
++                    }
++                }
++                GPUDevice::sync_threads();
++            }
++            // Coalescing-friendly load into v2, then permute into v3[0].
++            for (DEVICE_UINT t = tid; t < nPe; t += nthreads) {
++                const DEVICE_UINT li = sort_idx[t];
++                v2[t] = dptr_in_k[var * cg_sz + e2n_cg[ele * nPe + li]];
++            }
++            GPUDevice::sync_threads();
++            for (DEVICE_UINT t = tid; t < nPe; t += nthreads)
++                v3[0][sort_idx[t]] = v2[t];
++        } else if (tx < nx && ty < nx) {
++            for (DEVICE_INT tz = 0; tz < nx; tz++)
++                v3[0][IDX_DG(tx, ty, tz)] =
++                    pre[vi][IDX_DG(tx, ty, tz)];
++        }
++
++        GPUDevice::sync_threads();
++        DEVICE_UINT mid_bit = max_depth - elem_node.m_level;
++        DEVICE_UINT cnum    = ((((elem_node.m_z >> mid_bit) & 1u) << 2u) |
++                               (((elem_node.m_y >> mid_bit) & 1u) << 1u) |
++                               ((elem_node.m_x >> mid_bit) & 1u));
++        __p2c_3d__<DEVICE_REAL, p>(refEL, cnum, v3[0], v3[1], v1, v2);
++
++        if (tx < nx && ty < nx) {
++            DEVICE_INT ele_level = elem_node.m_level;
++            DEVICE_INT idx       = IDX_DG(tx, ty, 0);
++            DEVICE_INT owner_id =
++                (dptr_mesh->m_e2n_dg[ele * (nPe) + idx] / nPe);
++            DEVICE_INT l =
++                dptr_mesh->m_all_elements[owner_id].m_level < ele_level;
++            dgVec[idx] = v3[l][idx];
++
++            idx        = IDX_DG(tx, ty, nx - 1);
++            owner_id   = (dptr_mesh->m_e2n_dg[ele * (nPe) + idx] / nPe);
++            l = dptr_mesh->m_all_elements[owner_id].m_level < ele_level;
++            dgVec[idx] = v3[l][idx];
++
++            idx        = IDX_DG(tx, 0, ty);
++            owner_id   = (dptr_mesh->m_e2n_dg[ele * (nPe) + idx] / nPe);
++            l = dptr_mesh->m_all_elements[owner_id].m_level < ele_level;
++            dgVec[idx] = v3[l][idx];
++
++            idx        = IDX_DG(tx, nx - 1, ty);
++            owner_id   = (dptr_mesh->m_e2n_dg[ele * (nPe) + idx] / nPe);
++            l = dptr_mesh->m_all_elements[owner_id].m_level < ele_level;
++            dgVec[idx] = v3[l][idx];
++
++            idx        = IDX_DG(0, tx, ty);
++            owner_id   = (dptr_mesh->m_e2n_dg[ele * (nPe) + idx] / nPe);
++            l = dptr_mesh->m_all_elements[owner_id].m_level < ele_level;
++            dgVec[idx] = v3[l][idx];
++
++            idx        = IDX_DG(nx - 1, tx, ty);
++            owner_id   = (dptr_mesh->m_e2n_dg[ele * (nPe) + idx] / nPe);
++            l = dptr_mesh->m_all_elements[owner_id].m_level < ele_level;
++            dgVec[idx] = v3[l][idx];
++        }
++
++    } else {
++        if (tx < nx && ty < nx)
++            for (DEVICE_INT tz = 0; tz < nx; tz++)
++                dgVec[IDX_DG(tx, ty, tz)] =
++                    pre[vi][IDX_DG(tx, ty, tz)];
++    }
++
++    GPUDevice::sync_threads();
++
++    // if(blk_id < dptr_mesh->m_e2b_unzip_map_count[ele])
++    for (DEVICE_INT blk_id = 0; blk_id < dptr_mesh->m_e2b_unzip_map_count[ele];
++         blk_id++) {
++        const DEVICE_UINT blk =
++            dptr_mesh->m_e2b_unzip_map[dptr_mesh->m_e2b_unzip_map_offset[ele] +
++                                       blk_id];
++        const DEVICE_UINT lx     = dptr_mesh->m_blk_list[blk].m_aligned_sz[0];
++        const DEVICE_UINT ly     = dptr_mesh->m_blk_list[blk].m_aligned_sz[1];
++        const DEVICE_UINT lz     = dptr_mesh->m_blk_list[blk].m_aligned_sz[2];
++        const DEVICE_UINT offset = dptr_mesh->m_blk_list[blk].m_offset;
++
++        const TNode3d blkNode    = dptr_mesh->m_blk_list[blk].m_blockNode;
++        const DEVICE_UINT patch_level =
++            dptr_mesh->m_blk_list[blk].m_patch_level;
++        const DEVICE_UINT bLev = patch_level;
++
++        const DEVICE_FLOAT32 hx =
++            (1u << (max_depth - bLev)) / (DEVICE_FLOAT32)p;
++        const DEVICE_FLOAT32 xmin = blkNode.m_x - PW * hx;
++        const DEVICE_FLOAT32 ymin = blkNode.m_y - PW * hx;
++        const DEVICE_FLOAT32 zmin = blkNode.m_z - PW * hx;
++
++        const DEVICE_FLOAT32 xmax =
++            blkNode.m_x + (1u << (max_depth - blkNode.m_level)) + PW * hx;
++        const DEVICE_FLOAT32 ymax =
++            blkNode.m_y + (1u << (max_depth - blkNode.m_level)) + PW * hx;
++        const DEVICE_FLOAT32 zmax =
++            blkNode.m_z + (1u << (max_depth - blkNode.m_level)) + PW * hx;
++
++        /*if(ele>= dptr_mesh->m_blk_list[blk].m_elem_begin && ele <
++        dptr_mesh->m_blk_list[blk].m_elem_end)
++        {
++            if(!(tx < nx && ty < nx))
++                return;
++
++            const DEVICE_UINT
++        ei=(elem_node.m_x-blkNode.m_x)>>(max_depth-patch_level); const
++        DEVICE_UINT ej=(elem_node.m_y-blkNode.m_y)>>(max_depth-patch_level);
++            const DEVICE_UINT
++        ek=(elem_node.m_z-blkNode.m_z)>>(max_depth-patch_level);
++
++            for(DEVICE_UINT tz=0; tz<nx; tz++)
++                dptr_out_k[var * unzip_sz + offset + (ek*p+tz+PW) * (ly * lx) +(ej
++        * p + ty + PW) * (lx) + (ei*p + tx + PW)] = dgVec[IDX_DG(tx,ty,tz)];
++
++            return;
++
++        }else*/
++        if (elem_node.m_level == bLev) {
++            // if(!(tx < nx && ty < nx))
++            //     return;
++
++            const DEVICE_FLOAT32 hh =
++                (1u << (max_depth - elem_node.m_level)) / (DEVICE_FLOAT32)p;
++            const DEVICE_FLOAT32 invhh = 1.0 / hh;
++
++            const DEVICE_FLOAT32 yy    = elem_node.m_y + ty * hh;
++            const DEVICE_FLOAT32 xx    = elem_node.m_x + tx * hh;
++
++            const DEVICE_INT jjy       = std::round((yy - ymin) * invhh);
++            const DEVICE_INT iix       = std::round((xx - xmin) * invhh);
++
++            if (((jjy >= 0 && jjy < ly) && (iix >= 0 && iix < lx))) {
++                for (DEVICE_UINT tz = 0; tz < nx; tz++) {
++                    const DEVICE_FLOAT32 zz = elem_node.m_z + tz * hh;
++                    const DEVICE_INT kkz    = std::round((zz - zmin) * invhh);
++
++                    if ((kkz >= 0 && kkz < lz))
++                        dptr_out_k[var * unzip_sz + offset + kkz * lx * ly +
++                                 jjy * lx + iix] = dgVec[IDX_DG(tx, ty, tz)];
++                }
++            }
++
++            // return;
++
++        } else if (elem_node.m_level == (bLev + 1)) {
++            // if(!(tx < nx && ty < nx))
++            //     return;
++
++            const DEVICE_FLOAT32 hh =
++                (1u << (max_depth - elem_node.m_level)) / (DEVICE_FLOAT32)p;
++            const DEVICE_FLOAT32 invhh = 1.0 / (2 * hh);
++            const DEVICE_INT cb        = 0;  //(p%2==0) ? 0 : 1;
++
++            const DEVICE_FLOAT32 yy    = elem_node.m_y + ty * hh;
++            const DEVICE_FLOAT32 xx    = elem_node.m_x + tx * hh;
++
++            if (tx % 2 == cb && ty % 2 == cb) {
++                const DEVICE_INT jjy = std::round((yy - ymin) * invhh);
++                const DEVICE_INT iix = std::round((xx - xmin) * invhh);
++
++                if (((jjy >= 0 && jjy < ly) && (iix >= 0 && iix < lx))) {
++                    for (DEVICE_INT tz = cb; tz < nx; tz += 2) {
++                        const DEVICE_FLOAT32 zz = elem_node.m_z + tz * hh;
++                        const DEVICE_INT kkz = std::round((zz - zmin) * invhh);
++
++                        if ((kkz >= 0 && kkz < lz))
++                            dptr_out_k[var * unzip_sz + offset + kkz * lx * ly +
++                                     jjy * lx + iix] =
++                                dgVec[IDX_DG(tx, ty, tz)];
++                    }
++                }
++            }
++
++            // return;
++
++        } else {
++            assert(bLev == elem_node.m_level + 1);
++            TNode3d child_node;
++            const DEVICE_UINT child_sz =
++                (1u << (max_depth - elem_node.m_level - 1));
++
++            for (DEVICE_UINT child = 0; child < NUM_CHILDREN; child++) {
++                const DEVICE_UINT cbit[3] = {(child & 1u), ((child & 2u) >> 1u),
++                                             ((child & 4u) >> 2u)};
++                child_node.m_x =
++                    elem_node.m_x +
++                    cbit[0] * (1u << (max_depth - elem_node.m_level - 1));
++                child_node.m_y =
++                    elem_node.m_y +
++                    cbit[1] * (1u << (max_depth - elem_node.m_level - 1));
++                child_node.m_z =
++                    elem_node.m_z +
++                    cbit[2] * (1u << (max_depth - elem_node.m_level - 1));
++                child_node.m_level = elem_node.m_level + 1;
++
++                if ((child_node.m_x + child_sz < xmin ||
++                     child_node.m_x >= xmax) ||
++                    (child_node.m_y + child_sz < ymin ||
++                     child_node.m_y >= ymax) ||
++                    (child_node.m_z + child_sz < zmin ||
++                     child_node.m_z >= zmax))
++                    continue;
++
++                // if(!is_refine[child])
++                // {
++                //     __p2c_3d__<DEVICE_REAL,p>(refEL,child,dgVec,u_refine[child],v1,v2);
++                //     is_refine[child]=true;
++                // }
++                __p2c_3d__<DEVICE_REAL, p>(refEL, child, dgVec, v3[1], v1, v2);
++
++                if ((tx < nx && ty < nx)) {
++                    const DEVICE_FLOAT32 hh =
++                        (1u << (max_depth - child_node.m_level)) /
++                        (DEVICE_FLOAT32)p;
++                    const DEVICE_FLOAT32 invhh = 1.0 / hh;
++
++                    const DEVICE_FLOAT32 yy    = child_node.m_y + ty * hh;
++                    const DEVICE_FLOAT32 xx    = child_node.m_x + tx * hh;
++
++                    const DEVICE_INT jjy = std::round((yy - ymin) * invhh);
++                    const DEVICE_INT iix = std::round((xx - xmin) * invhh);
++
++                    if (((jjy >= 0 && jjy < ly) && (iix >= 0 && iix < lx))) {
++                        for (DEVICE_INT tz = 0; tz < nx; tz++) {
++                            const DEVICE_FLOAT32 zz = child_node.m_z + tz * hh;
++                            const DEVICE_INT kkz =
++                                std::round((zz - zmin) * invhh);
++
++                            // if((kkz>=0 && kkz<lz))
++                            //     dptr_out_k[var*unzip_sz + offset + kkz*lx*ly +
++                            //     jjy*lx + iix] =
++                            //     u_refine[child][IDX_DG(tx,ty,tz)];
++                            if ((kkz >= 0 && kkz < lz))
++                                dptr_out_k[var * unzip_sz + offset +
                                           kkz * lx * ly + jjy * lx + iix] =
                                      v3[1][IDX_DG(tx, ty, tz)];
                          }
-@@ -1810,6 +1921,9 @@ GLOBAL_FUNC void __unzip_cg1__2(const MeshGPU* const dptr_mesh,
+@@ -1810,6 +2287,9 @@ GLOBAL_FUNC void __unzip_cg1__2(const MeshGPU* const dptr_mesh,
          }
      }
  
@@ -216,7 +582,7 @@ index 0808146..664cb7c 100644
      return;
  }
  
-@@ -2320,6 +2434,54 @@ GLOBAL_FUNC __launch_bounds__(GPU_MAX_THREADS_PER_BLOCK) void __write_sb_cg__(
+@@ -2320,6 +2800,54 @@ GLOBAL_FUNC __launch_bounds__(GPU_MAX_THREADS_PER_BLOCK) void __write_sb_cg__(
      return;
  }
  
@@ -271,7 +637,7 @@ index 0808146..664cb7c 100644
  template <typename T>
  GLOBAL_FUNC __launch_bounds__(GPU_MAX_THREADS_PER_BLOCK) void __read_rb_cg__(
      const MeshGPU* const dptr_mesh, const T* const dptr_in, T* const dptr_out) {
-@@ -2462,14 +2624,213 @@ void MeshGPU::unzip_cg(const ot::Mesh* const pMesh,
+@@ -2462,14 +2990,232 @@ void MeshGPU::unzip_cg(const ot::Mesh* const pMesh,
  
      assert(pMesh->getNumLocalMeshElements() ==
             pMesh->getLocalBlockList().size());
@@ -413,9 +779,28 @@ index 0808146..664cb7c 100644
 +            cudaEventDestroy(ev2);
 +        }
 +    } else {
-+        dim3 gb = dim3(m_unzip_grid[0], 1, dof);
-+        __unzip_cg1__2<T, 6, 3><<<gb, tb, 0, s>>>(
-+            dptr_mesh, dptr_in, dptr_out, nullptr, 1, 0, 0, sort_gather);
++        // DENDRO_UNZIP_VB=<2|4|8>: variable-batched unzip (bit-identical).
++        static const unsigned vb_sel = []() {
++            const char* e = std::getenv("DENDRO_UNZIP_VB");
++            return e ? (unsigned)std::atoi(e) : 0u;
++        }();
++        if (vb_sel == 2 || vb_sel == 4 || vb_sel == 8) {
++            dim3 gbv = dim3(m_unzip_grid[0], 1, (dof + vb_sel - 1) / vb_sel);
++            dim3 tbv = dim3(7, 7, 1);
++            if (vb_sel == 2)
++                __unzip_cg1__2_vb<T, 6, 3, 2><<<gbv, tbv, 0, s>>>(
++                    dptr_mesh, dptr_in, dptr_out, nullptr, dof);
++            else if (vb_sel == 4)
++                __unzip_cg1__2_vb<T, 6, 3, 4><<<gbv, tbv, 0, s>>>(
++                    dptr_mesh, dptr_in, dptr_out, nullptr, dof);
++            else
++                __unzip_cg1__2_vb<T, 6, 3, 8><<<gbv, tbv, 0, s>>>(
++                    dptr_mesh, dptr_in, dptr_out, nullptr, dof);
++        } else {
++            dim3 gb = dim3(m_unzip_grid[0], 1, dof);
++            __unzip_cg1__2<T, 6, 3><<<gb, tb, 0, s>>>(
++                dptr_mesh, dptr_in, dptr_out, nullptr, 1, 0, 0, sort_gather);
++        }
 +    }
 +
 +    // Queue #5: DENDRO_UNZIP_K_BENCH=<K> — serial-K ceiling (extra launches).
@@ -492,7 +877,7 @@ index 0808146..664cb7c 100644
  }
  
  template <typename T, typename stream>
-@@ -2788,4 +3149,137 @@ void MeshGPU::read_from_ghost_cg_end(ot::AsyncExchangeContex& ctx_host,
+@@ -2788,4 +3534,137 @@ void MeshGPU::read_from_ghost_cg_end(ot::AsyncExchangeContex& ctx_host,
      return;
  }
  

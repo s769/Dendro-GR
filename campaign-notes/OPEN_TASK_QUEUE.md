@@ -29,8 +29,8 @@ Automation: when a new idev goes `R`, run the **next queued GPU task**, not a ke
 | B3 pack K ghosts | closed (no-go at these sizes) |
 | Remesh: GPU BH_WAMR + device WAMR + block-setup O(N^2) fix | **done, default ON** (adaptive production-depth q8 380.8 -> 190.4 s) |
 | Extraction (shell-only, OMP, cached sampler) | done (opt-in `DENDRO_GW_SHELL_ONLY=1`) |
-| init_grid initial-data evaluation (~580 s/simulation host, single thread) | OpenMP version implemented (`DENDRO_INIT_OMP`, default on), **timing pending a node** |
-| var-batched unzip CTA | idea, not started |
+| init_grid initial-data evaluation | **done**: 584 s -> 74 s (`DENDRO_INIT_OMP`, default on) |
+| var-batched unzip CTA | **done, no-go** (+5..13% slower; `DENDRO_UNZIP_VB`, off) |
 | FP32-tangent plateau test | later |
 | Tier 3.3 q8 orbits-vs-cost | not started |
 | fine-resolution waveform FD | not started |
