@@ -1,18 +1,33 @@
-# GPU vs CPU physics check (2026-11-09) — PARTIAL, more runs queued
+# GPU-vs-CPU physics check (2026-11-10) — RESOLVED root causes
 
-Case: RIT q1 smoke setup (`q1.smoke_cons.par.toml`, BH1.MASS=0.4824, frozen TPID sol), MAXDEPTH 13, `BSSN_REFINEMENT_MODE=4` (BH_WAMR), remesh test every 10 steps, extraction every 10, GW radii 10..25.
-Runs (`run_physcheck.sh`): `cpu` = CPU `bssnSolver` 36 MPI ranks (adaptive, CPU BH_WAMR); `gpu` = GPU defaults (adaptive, device WAMR); `gpu0` = GPU with `DENDRO_GPU_BH_WAMR=0` (frozen init mesh).
-GPU: adaptive 254.6 s with 122 remeshes (every test remeshes) vs frozen 95.9 s (T=20). CPU ran ~0.7 steps/s; node expired at t=6.35 so comparisons below are for t<=6.35.
+Reference: CPU `bssnSolver` (36 ranks), q1 smoke (maxdepth 13, BH_WAMR), same TP solution file.
+Method: frozen mesh (no remesh), per-step state / unzip / stage-1 RHS dumps from both solvers
+(`DENDRO_DUMP_STATE=<dir>:<steps>`, `DENDRO_DUMP_RHS=<dir>:<step>`, `compare_state.py`, `analyze_unzip.py`).
 
-| quantity (t<=6.35) | gpu vs cpu | gpu0 vs cpu | gpu vs gpu0 |
-|---|---|---|---|
-| BH position max abs diff | 5.7e-3 (bh1_y 0.5489 vs 0.5432 at t=6.2) | 5.7e-3 | ~0 until t~6 (separation differs 2.7e-2 by t=20) |
-| BH separation max diff | 1.9e-3 (6.96809 vs 6.96795 final) | 1.9e-3 | |
-| C_HAM final | 1.59e-5 vs 1.54e-5 | 1.59e-5 vs 1.21e-5 | at t=20: adaptive 2.1e-5 vs frozen 7.9e-6 |
-| psi4 l2m2 max abs diff / max | 1.0e-6 / 3.3e-4 (0.3%) | same | 1.0e-2 of max by t=20 |
-| psi4 l3m2 | 1.3e-6 / 8.6e-5 (1.5%) | 1.2e-6 | |
-Observations:
-- The adaptive and frozen GPU runs are indistinguishable from each other through t~6 and differ from the CPU run by ~1% in BH y-velocity (growing slowly: 1.1e-4 vs 4.7e-5 at t=0.16, 5.7e-3 at t=6.2). Remeshing logic is therefore NOT the source of the CPU/GPU gap at early times.
-- BH position tracking differs systematically; cause not identified (candidates: CPU/GPU unzip hanging-node interpolation, BH-velocity extraction on lagged/ghost-refreshed host data, step-0 C_HAM on GPU = 1.006e-5 vs CPU 9.207e-6 suggests the GPU step-0 diagnostic uses pre-enforcement/pre-ghost state).
-- At t=20 adaptive GPU has HIGHER constraint violation (2.1e-5) than frozen-mesh GPU (7.9e-6): remeshing every test (122 events) injects interpolation error. The CPU run did not reach t=20 so the CPU adaptive trend is unknown.
-QUEUED (run automatically when a node starts: `watch_batch.sh` -> `run_next_batch.sh`): CPU run on a FROZEN mesh (identical mesh to gpu0, mode `cpu0`, T=6.4) to isolate pure solver-implementation differences; OpenMP thread sweep; TP warm start.
+## Findings (all in the ORIGINAL GPU port, none from the campaign optimizations)
+1. **Init refinement ignored `BSSN_USE_SET_REF_MODE_FOR_INITIAL_CONVERGE`.** CPU refines the init mesh with the
+   configured mode (BH_WAMR: 7512 elements); GPU used plain WAMR (4964). Fixed in `BSSNCtxGPU::initialize`
+   (`DENDRO_GPU_INIT_REFMODE=0` restores old). Step-0 C_HAM now identical (9.2068383e-6).
+2. **GPU RHS lacked the slow-start-lapse (SSL) term.** CPU build has `BSSN_ENABLE_SSL_HD=ON`
+   (`bssneqs_SSL_HD_dxsq.cpp`): `a_rhs += -sqrt(chi)*h*(alpha-sqrt(chi))*exp(-t^2/(2 sig^2))`, h=0.6, sig=20
+   (hard-coded defaults, not in the par files). Added as an elementwise pass after the RHS kernels
+   (`DENDRO_GPU_SSL=0` disables). Found by diffing stage-1 RHS on identical input: only alpha differed.
+3. **Not implemented on GPU (guarded):** CAHD (`BSSN_CAHD_C`, default 0 -> GPU now aborts if nonzero) and CAKO
+   (`BSSN_CAKO_ENABLED`; driver enables it in some merger configs -> GPU prints a warning, uses plain KO).
+   Neither is on in the current par files.
+4. **BH tracking cadence differs:** CPU updates BH locations every step; GPU only at GW-extraction steps (coarser
+   integration). Waveform unaffected (frozen mesh); trajectory differs ~2.6e-3 abs, sep 3.5e-4 rel. Affects BH-based
+   refinement regions in adaptive runs. OPEN.
+
+## Ruled out
+Unzip / hanging-node interpolation (device unzip differs from CPU only by the state difference), dx, KO stencils
+(identical), advection, eta damping, OpenMP init, stock vs PT_ASYNC RHS (agree to 1e-11 with each other).
+
+## Result after fixes (frozen mesh, t<=6.35)
+psi4 l2m2 3e-11, l3m2 2e-11 rel-to-max (was 3e-3 / 1.5e-2); state after 5 steps 1.5e-11 (was 1e-4);
+C_HAM final equal. Remaining: BH trajectory (item 4).
+
+## Consequence for earlier numbers
+GPU runs before this fix started on a coarser init mesh (4964 vs 7512 elements) and solved a different gauge.
+Earlier GPU timings (esp. init-phase and early-step costs) should be re-measured; ensemble FD tables
+(`TIER1_FD.md`) were produced with the old GPU physics and need to be redone.
