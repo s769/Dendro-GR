@@ -51,3 +51,21 @@ Var-batched unzip (`DENDRO_UNZIP_VB`): no-go (+5..13% slower). K-member batching
 ## Biggest caveat
 GPU runs with production parameter files (`BSSN_REFINEMENT_MODE = 4`) never remesh (GPU `is_remesh` lacks BH_WAMR). With the gated fix (`DENDRO_GPU_BH_WAMR=1`) the first version ran ~10x slower on the meshprobe; after the device WAMR test and the block-setup fix the adaptive overhead is +44% at production depth (see above).
 The default is still OFF pending your decision; remeshing correctness over long runs has only been checked for short windows.
+
+## CORRECTED headline measurement (2026-11-10) -- production depth q8, T=0.3 (~300 steps, 4 GB200 GPUs, same code revision)
+(run_speedup3.sh; "ETS" = stepping phase incl. remeshes and 3 GW extractions; startup = TwoPunctures read + init_grid + init refinement)
+| configuration | startup | ETS | remeshes | per-step (ETS minus remeshes)/300 | 300-step wall |
+|---|---|---|---|---|---|
+| ORIGINAL port: stock RHS, serial init, host unzip vectors, no overlap, **no remeshing** (BH_WAMR not implemented), original physics | 693 s | 30.6 s | 0 | 102 ms | ~724 s |
+| optimized, ORIGINAL physics (pure performance work) | 43 s | 29.0 s | 5 (mean 1.35 s) | 74 ms | ~72 s |
+| optimized, CORRECTED physics (init-mesh fix + SSL + CAHD + per-step BH tracking) = production | 57 s | 35.1 s | 5 (mean 1.10 s) | 99 ms | ~92 s |
+Reading:
+* Startup: 693 s -> 43 s (16x) from OpenMP init + lazy vectors etc.; with corrected physics 57 s (larger init mesh).
+* Per-step (compute) cost: optimized/original-physics is 1.4x faster than the original port (74 vs 102 ms, and that includes the
+  remeshing machinery the original never ran). With the CORRECTED physics the per-step cost (99 ms) is ~equal to the original port's:
+  CAHD (+12%), the larger init mesh, BH tracking (+5%) and SSL use up the per-step gain.
+* The original port never remeshed under the production parameters (BH_WAMR unimplemented), i.e. it ran a static mesh: it is NOT a
+  scientifically usable baseline; its per-step number is flattering for it.
+* For a 300-step run the end-to-end gain is 724 s -> 92 s (7.9x) dominated by startup; for long runs the per-step ratio dominates
+  (~1.0x at equal physics vs the original port, 1.4x at original physics).  GPU vs CPU: smoke case to t=14, 165 s vs 1262 s (36 CPU ranks).
+Caveats: single samples, only 300 steps; per-step includes 3 extractions (shell-only in the optimized runs, full host extraction in the original).
