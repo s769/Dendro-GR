@@ -454,12 +454,28 @@ int main(int argc, char** argv) {
                         << "[ETS] : Executing step :  " << ets->curr_step()
                         << "\tcurrent time :" << ets->curr_time()
                         << "\t dt:" << ets->ts_size() << "\t" << std::endl;
+                static const bool gw_shell_inline = []() {
+                    const char* e = std::getenv("DENDRO_GW_SHELL_ONLY");
+                    return e && e[0] == '1' && e[1] == '\0';
+                }();
+                if (gw_shell_inline) {
+                    // Shell-only extraction works from the CURRENT device
+                    // state, so do it inline at this step (state and time
+                    // consistent) instead of the lagged async-snapshot path.
+                    bssnCtx->device_to_host_sync();
+                    bssnCtx->terminal_output();
+                    bssnCtx->evolve_bh_loc();
+                    bssnCtx->write_vtu();
+                    is_gw_written = true;
+                    did_d2h_sync  = true;
+                } else {
                 // 03/23/22 : this works only because we use defult stream to
                 // for the evolution. Default stream is special and synchronous
                 // with all other streams.
                 bssnCtx->device_to_host_async(s_gw);
                 ts_gw_output  = bssnCtx->get_ts_info();
                 is_gw_written = false;
+                }
             }
 
             // drain the GW copy before a checkpoint step's post-evolve D2H

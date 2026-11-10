@@ -1,5 +1,7 @@
 #include "physcon.h"
 
+#include <vector>
+
 #include "gr.h"
 
 using namespace bssn;
@@ -60,7 +62,12 @@ void physical_constraints(double **uZipConVars, const double **uZipVars,
     const unsigned int PW     = bssn::BSSN_PADDING_WIDTH;
 
     const unsigned int BLK_SZ = n;
-    double *const deriv_base  = bssn::BSSN_DERIV_WORKSPACE;
+    // Per-thread scratch (the shared global workspace is not thread-safe), so
+    // blocks can be evaluated concurrently by physical_constraints_blocks().
+    static thread_local std::vector<double> tl_ws;
+    if (tl_ws.size() < (size_t)n * bssn::BSSN_NUM_DERIVS)
+        tl_ws.resize((size_t)n * bssn::BSSN_NUM_DERIVS);
+    double *const deriv_base  = tl_ws.data();
     // clang-format off
 #include "bssnrhs_evar_derivs.h"
 #include "constraint_derivs.h"
@@ -98,5 +105,16 @@ void physical_constraints(double **uZipConVars, const double **uZipVars,
 #include "physconeqs_gt.cpp"
             }
         }
+    }
+}
+
+/** OpenMP-parallel evaluation of physical_constraints over a block list. */
+void physical_constraints_blocks(double **uZipConVars, const double **uZipVars,
+                                 const std::vector<PhysConBlock> &blks) {
+#pragma omp parallel for schedule(dynamic, 1)
+    for (long b = 0; b < (long)blks.size(); b++) {
+        const PhysConBlock &k = blks[b];
+        physical_constraints(uZipConVars, uZipVars, k.offset, k.ptmin, k.ptmax,
+                             k.sz, k.bflag);
     }
 }

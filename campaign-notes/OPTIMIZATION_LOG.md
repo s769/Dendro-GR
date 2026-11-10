@@ -24,7 +24,25 @@ total 23.4 s of ETS 34.5 s (**68%**): unzip+D2H 8.4 s (0.56 s/call), constraints
 Cost grows with mesh size (replays at 40k elements ran ~10 s/step with extraction every 4 steps). Production pars extract every 50-100 steps (q4: 50, q8: 100), so at q8's ~4M steps
 extraction is a plausible 10-30% of wall time — NOT measured at production scale; needs one profiled q8 run. Cheapest lever: `BSSN_GW_EXTRACT_FREQ` (parameter).
 
-Experimental `DENDRO_GW_SHELL_ONLY=1` (default OFF): device unzip + per-block D2H of only blocks near the GW spheres, constraints/psi4 on those only. Coarse q1: ETS 34.5 -> 23.0 s (-33%),
-unzip+D2H 8.4 -> 0.04 s. **NOT VALIDATED**: psi4 differs from the host-unzip path by up to 1% (l2_m2), 4.5% (l3_m2), already at t=0, independent of margin
-(`DENDRO_GW_SHELL_MARGIN` 2 vs 1000 identical diff) => the difference is host-unzip vs device-unzip INPUT, not the block filter. A one-shot comparison (`DENDRO_UNZIP_CMP=1`) was inconclusive
-(host unzip array looked stale/zero at the step-0 call, so states weren't synchronized). Constraint norms are invalid in this mode. Do not use for production until the discrepancy is explained.
+## Extraction fix (resolved 2026-11-09)
+The earlier ~1% psi4 "discrepancy" of the shell-only path was a STATE LAG, not an unzip difference: the driver snapshots the host state with an async D2H at the
+extraction step but runs `write_vtu` a step or more later, while my shell path unzipped the *current* device state. Fix: in shell mode the driver extracts INLINE at the
+extraction step (`device_to_host_sync` + `write_vtu`), so state and time agree.
+
+Four changes (all validated against the original path on identical inputs):
+| # | change | knob | note |
+|---|--------|------|------|
+| 1 | psi4/constraints only on blocks intersecting the GW spheres (margin 2 block widths), device unzip + per-block D2H instead of host unzip of everything; skip constraint norms | `DENDRO_GW_SHELL_ONLY=1` (default OFF; constraint norms/`Constraints.dat` invalid in this mode) | `DENDRO_GW_SHELL_MARGIN` |
+| 2 | `physical_constraints` thread-safe (thread_local scratch) + `physical_constraints_blocks` OpenMP loop | `OMP_NUM_THREADS` (run with `mpirun --bind-to none` / Slurm `--cpus-per-task`; bound-to-1-core made it SLOWER) | affects CPU solver path too, numerically identical |
+| 3 | cached psi4 sphere sampler: octree search + 1D Lagrange weights cached per mesh, points grouped by element, thread-safe nodal gather | `DENDRO_GW_CACHE_SAMPLER` (default ON, `=0` original) ; `DENDRO_GW_CACHE_VERIFY=1` cross-checks vs original | signature must include `getElementLocalBegin/End` + total element count (a neighbour remesh shifts element ids) |
+| 4 | shared-scratch bug avoided: default `getElementNodalValues` uses `RefElement::im_vec1/2` (not thread-safe) -> use the 6-arg overload with per-thread buffers | - | |
+
+Results (extraction every 4 steps, `DENDRO_TIME_EXTRACT=1`):
+| case | baseline ETS (s) | new ETS (s) | extraction (s) base -> new | psi4 agreement |
+|------|-----------------:|------------:|---------------------------:|----------------|
+| coarse q1, 1 GPU, 15 extractions | 33.8 | 13.05 (OMP=8, shell, cache) = **-61%** | 23.1 -> 4.2 (5.5x) | 3e-11..1.5e-10 rel (print precision) |
+| **q8 meshprobe, 4 GPU, 30 extractions** | **48.4** | **13.7** = **-72%** | 35.8 -> 3.2 (**11x**) | 8e-11 (l2m2), 3e-10 (l2m1), 3e-9 (l3m2, tiny mode) rel; shell path alone matches to 1e-17 abs |
+
+Production relevance (extraction every 50-100 steps): baseline cost ~1.2 s/extraction at q8 mesh size vs ~0.1 s/step => ~12% overhead at freq 100, ~1% after; larger meshes scale worse for baseline.
+Recommended inversion-ensemble settings: `DENDRO_GW_SHELL_ONLY=1`, `OMP_NUM_THREADS=8..16` per rank with cores unbound, cache on (default). Use the default (full) path when constraint norms are needed.
+Data: `tier0/*` logs from `run_extract_ab3.sh`, `run_extract_q8.sh`, `run_cache_verify.sh` (744 cache-vs-original checks, 0 mismatches after the signature fix).

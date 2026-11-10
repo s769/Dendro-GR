@@ -580,6 +580,8 @@ int BSSNCtxGPU::write_vtu(bool extract) {
                        bssn::BSSN_COMPD_MAX[2]);
     const unsigned int PW = bssn::BSSN_PADDING_WIDTH;
 
+    std::vector<PhysConBlock> pc_blocks;
+    pc_blocks.reserve(blkList.size());
     for (unsigned int blk = 0; blk < blkList.size(); blk++) {
         offset   = blkList[blk].getOffset();
         sz[0]    = blkList[blk].getAllocationSzX();
@@ -632,9 +634,20 @@ int BSSNCtxGPU::write_vtu(bool extract) {
                          (size_t)sz[0] * sz[1] * sz[2] * sizeof(double),
                          bssn::BSSN_NUM_VARS, cudaMemcpyDeviceToHost);
         }
-        physical_constraints(consUnzipVar, (const DendroScalar**)evolUnzipVar,
-                             offset, ptmin, ptmax, sz, bflag);
+        {
+            PhysConBlock pb;
+            pb.offset = offset;
+            for (int a = 0; a < 3; a++) {
+                pb.ptmin[a] = ptmin[a];
+                pb.ptmax[a] = ptmax[a];
+                pb.sz[a]    = sz[a];
+            }
+            pb.bflag = bflag;
+            pc_blocks.push_back(pb);
+        }
     }
+    physical_constraints_blocks(consUnzipVar,
+                                (const DendroScalar**)evolUnzipVar, pc_blocks);
 
     /*double consVecMin[bssn::BSSN_CONSTRAINT_NUM_VARS];
     double consVecMax[bssn::BSSN_CONSTRAINT_NUM_VARS];*/
@@ -660,10 +673,14 @@ int BSSNCtxGPU::write_vtu(bool extract) {
         if (minDetGt == noMinDet)
             minDetGt = std::numeric_limits<double>::quiet_NaN();
 
-        bssn::extractConstraints(m_uiMesh, (const DendroScalar**)consVar,
-                                 evolVar[BHLOC::EXTRACTION_VAR_ID],
-                                 BHLOC::EXTRACTION_TOL, m_uiTinfo._m_uiStep,
-                                 m_uiTinfo._m_uiT, minDetGt);
+        // Shell-only mode computes constraints on a subset of blocks only, so
+        // the constraint norms would be meaningless: skip them.
+        if (!gw_shell_only)
+            bssn::extractConstraints(m_uiMesh, (const DendroScalar**)consVar,
+                                     evolVar[BHLOC::EXTRACTION_VAR_ID],
+                                     BHLOC::EXTRACTION_TOL,
+                                     m_uiTinfo._m_uiStep, m_uiTinfo._m_uiT,
+                                     minDetGt);
         double tm4 = tm_on ? tm_now() : 0.0;
 #ifndef BSSN_KERR_SCHILD_TEST
 #ifdef BSSN_EXTRACT_GRAVITATIONAL_WAVES
