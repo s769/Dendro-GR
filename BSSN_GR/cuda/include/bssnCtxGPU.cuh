@@ -92,6 +92,8 @@ class BSSNCtxGPU : public ts::Ctx<BSSNCtxGPU, DendroScalar, unsigned int> {
     bool m_bBHEvolved           = false;
 
    public:
+    /** debug: dump device-unzipped state (DENDRO_DUMP_STATE) */
+    void dump_unzip_debug(unsigned int step, const std::string& dir);
     /**@brief: default constructor*/
     BSSNCtxGPU(ot::Mesh* pMesh);
 

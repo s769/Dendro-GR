@@ -20,6 +20,7 @@
 #include "octUtils.h"
 #include "sdc.h"
 #include "ts.h"
+#include "dumpState.h"
 
 int main(int argc, char** argv) {
     // 0- NUTS 1-UTS
@@ -512,6 +513,17 @@ int main(int argc, char** argv) {
 
             bssnCtx->prepare_for_next_iter();
 
+            {
+                std::string dsdir;
+                if (bssn::dump_state_wanted(step, dsdir)) {
+                    bssnCtx->device_to_host_sync();
+                    DVec dsv = bssnCtx->get_evolution_vars_cpu();
+                    DendroScalar* dse[bssn::BSSN_NUM_VARS];
+                    dsv.to_2d(dse);
+                    bssn::dump_state(bssnCtx->get_mesh(), dse, step, dsdir);
+                    bssnCtx->dump_unzip_debug(step, dsdir);
+                }
+            }
             ets->evolve();
 
 #ifndef BSSN_PROFILE_SCALING_RUN

@@ -23,6 +23,7 @@
 #include "mpi.h"
 #include "octUtils.h"
 #include "parameters.h"
+#include "dumpState.h"
 #include "rkBSSN.h"
 #include "sdc.h"
 
@@ -676,6 +677,22 @@ int main(int argc, char** argv) {
                 bssnCtx->findAH();
             }
 
+            {
+                std::string dsdir;
+                if (bssn::dump_state_wanted(step, dsdir)) {
+                    DVec dsv = bssnCtx->get_evolution_vars();
+                    DendroScalar* dse[bssn::BSSN_NUM_VARS];
+                    dsv.to_2d(dse);
+                    bssn::dump_state(bssnCtx->get_mesh(), dse, step, dsdir);
+                    {
+                        DVec uz;
+                        uz.create_vector(bssnCtx->get_mesh(), ot::DVEC_TYPE::OCT_LOCAL_WITH_PADDING,
+                                         ot::DVEC_LOC::HOST, bssn::BSSN_NUM_VARS, true);
+                        bssnCtx->unzip(dsv, uz, bssn::BSSN_ASYNC_COMM_K);
+                        bssn::dump_unzip(bssnCtx->get_mesh(), uz.get_vec_ptr(), bssn::BSSN_NUM_VARS, step, dsdir);
+                    }
+                }
+            }
             ets->evolve();
             if (ets->error_control() != ts::ETSErrCtrl::OFF)
                 write_rk_err_data(ets);

@@ -11,6 +11,7 @@
  */
 
 #include "bssnCtx.h"
+#include "dumpState.h"
 
 #include <mpi.h>
 #include <sys/types.h>
@@ -113,6 +114,13 @@ int BSSNCtx::rhs(DVec* in, DVec* out, unsigned int sz, DendroScalar time) {
     this->m_uiCtxpt[ts::CTXPROFILE::RHS].stop();
 #endif
 
+    {
+        std::string dsd;
+        if (bssn::dump_rhs_wanted(m_uiTinfo._m_uiStep, dsd))
+            bssn::dump_unzip(m_uiMesh, m_var[CPU_EV_UZ_OUT].get_vec_ptr(),
+                             bssn::BSSN_NUM_VARS,
+                             (unsigned)m_uiTinfo._m_uiStep + 1000, dsd);
+    }
     this->zip(m_var[CPU_EV_UZ_OUT], *out);
 
     return 0;

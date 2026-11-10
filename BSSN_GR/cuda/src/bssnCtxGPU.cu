@@ -15,6 +15,7 @@
 
 #include "bssnChkptSchema.h"
 #include "bssnCtxGPU.cuh"
+#include "dumpState.h"
 #include <chrono>
 #include "meshReplay.h"
 // CONST_MEM DEVICE_REAL device::refel_1d[2 * REFEL_CONST_MEM_MAX];
@@ -24,6 +25,26 @@ namespace bssn {
 // default path (device WAMR test + shell extraction) rarely needs them, so they
 // are created lazily after a remesh (DENDRO_EAGER_HOST_UNZIP=1 restores eager
 // creation in grid_transfer).
+
+// ---------------------------------------------------------------------------
+// Slow-start lapse (SSL). The CPU RHS is compiled with BSSN_ENABLE_SSL_HD
+// (bssneqs_SSL_HD_dxsq.cpp), whose lapse equation carries the extra term
+//   a_rhs += -sqrt(chi) * h_ssl * (alpha - sqrt(chi)) * exp(-t^2/(2 sig^2)).
+// The generated CUDA kernels implement the plain 1+log lapse only, so GPU runs
+// silently solved a different gauge than the CPU baseline (found 2026-11-10 by
+// diffing stage-1 RHS on identical input: only alpha differed). The term is
+// purely local, so it is applied here as one elementwise pass on the unzipped
+// RHS after the main kernels. DENDRO_GPU_SSL=0 disables it (old behaviour).
+static __global__ void ssl_alpha_kernel(double* __restrict__ a_rhs,
+                                        const double* __restrict__ alpha,
+                                        const double* __restrict__ chi,
+                                        size_t n, double h_ssl, double coef) {
+    size_t i = blockIdx.x * (size_t)blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    const double s = sqrt(fmax(chi[i], 0.0));
+    a_rhs[i] += -s * h_ssl * (alpha[i] - s) * coef;
+}
+
 static inline void ensure_host_unzip_vec(DVec& v, const ot::Mesh* mesh,
                                          unsigned int nvars) {
     if (v.get_vec_ptr() == nullptr)
@@ -568,6 +589,9 @@ int BSSNCtxGPU::write_vtu(bool extract) {
             std::vector<double> hd(tot);
             cudaMemcpy(hd.data(), m_var[VL::GPU_EV_UZ_IN].get_vec_ptr(),
                        tot * sizeof(double), cudaMemcpyDeviceToHost);
+            // fresh host unzip of the same state (host vectors are lazy now)
+            ensure_host_unzip_vec(m_evar_unz, m_uiMesh, bssn::BSSN_NUM_VARS);
+            this->unzip(m_var[VL::CPU_EV], m_evar_unz, BSSN_ASYNC_COMM_K);
             const double* hh = m_evar_unz.get_vec_ptr();
             const std::vector<ot::Block>& bl = m_uiMesh->getLocalBlockList();
             std::vector<double> wmax(bssn::BSSN_NUM_VARS, 0.0),
@@ -1548,6 +1572,56 @@ int BSSNCtxGPU::rhs(DVec* in, DVec* out, unsigned int sz, DendroScalar time) {
 
     GPUDevice::check_last_error();
 
+#ifdef BSSN_ENABLE_SSL_HD
+    {
+        static const bool gpu_ssl = []() {
+            const char* e = std::getenv("DENDRO_GPU_SSL");
+            return !(e && e[0] == '0');  // DEFAULT ON: matches the CPU baseline
+        }();
+        if (gpu_ssl) {
+            const double sg   = bssn::BSSN_SSL_SIGMA;
+            const double coef = std::exp(-0.5 * time * time / (sg * sg));
+            const size_t nn   = (size_t)unzip_sz;
+            ssl_alpha_kernel<<<(unsigned)((nn + 255) / 256), 256>>>(
+                m_dptr_uz_o.get_vec_ptr() + (size_t)bssn::VAR::U_ALPHA * nn,
+                m_dptr_uz_i.get_vec_ptr() + (size_t)bssn::VAR::U_ALPHA * nn,
+                m_dptr_uz_i.get_vec_ptr() + (size_t)bssn::VAR::U_CHI * nn, nn,
+                bssn::BSSN_SSL_H, coef);
+        }
+    }
+#endif
+    {
+        // The CUDA RHS does not implement CAHD or CAKO; refuse to run a
+        // different system silently.
+        static bool warned = false;
+        if (!warned) {
+            warned = true;
+            if (bssn::BSSN_CAHD_C != 0.0 && !m_uiMesh->getMPIRankGlobal()) {
+                fprintf(stderr, "[bssn-gpu] FATAL: BSSN_CAHD_C=%g but the GPU RHS "
+                        "does not implement CAHD.\n", bssn::BSSN_CAHD_C);
+                MPI_Abort(MPI_COMM_WORLD, 1);
+            }
+        }
+        static bool warned_cako = false;
+        if (!warned_cako && bssn::BSSN_CAKO_ENABLED) {
+            warned_cako = true;
+            if (!m_uiMesh->getMPIRankGlobal())
+                fprintf(stderr, "[bssn-gpu] WARNING: BSSN_CAKO_ENABLED but the "
+                        "GPU RHS does not implement CAKO (plain KO is used).\n");
+        }
+    }
+    {
+        std::string dsd;
+        if (bssn::dump_rhs_wanted(m_uiTinfo._m_uiStep, dsd)) {
+            GPUDevice::device_synchronize();
+            const size_t tot = (size_t)unzip_sz * bssn::BSSN_NUM_VARS;
+            std::vector<double> h(tot);
+            cudaMemcpy(h.data(), m_dptr_uz_o.get_vec_ptr(), tot * sizeof(double),
+                       cudaMemcpyDeviceToHost);
+            bssn::dump_unzip(m_uiMesh, h.data(), bssn::BSSN_NUM_VARS,
+                             (unsigned)m_uiTinfo._m_uiStep + 1000, dsd);
+        }
+    }
     this->zip(m_dptr_uz_o, *out);
 
     return 0;
@@ -2150,3 +2224,13 @@ unsigned int BSSNCtxGPU::getBlkTimestepFac(unsigned int blev, unsigned int lmin,
 }
 
 }  // namespace bssn
+
+void BSSNCtxGPU::dump_unzip_debug(unsigned int step, const std::string& dir) {
+    this->unzip(m_var[VL::GPU_EV], m_var[VL::GPU_EV_UZ_IN], BSSN_ASYNC_COMM_K);
+    GPUDevice::device_synchronize();
+    const size_t tot = (size_t)m_uiMesh->getDegOfFreedomUnZip() * bssn::BSSN_NUM_VARS;
+    std::vector<double> h(tot);
+    cudaMemcpy(h.data(), m_var[VL::GPU_EV_UZ_IN].get_vec_ptr(),
+               tot * sizeof(double), cudaMemcpyDeviceToHost);
+    bssn::dump_unzip(m_uiMesh, h.data(), bssn::BSSN_NUM_VARS, step, dir);
+}
