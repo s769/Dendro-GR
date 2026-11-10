@@ -1717,11 +1717,12 @@ bool BSSNCtxGPU::is_remesh() {
     const double trm0 = tm_rm ? tmn() : 0.0;
     // Device WAMR path (BH_WAMR + DENDRO_GPU_BH_WAMR=1 + DENDRO_GPU_WAMR=1, no
     // verify) needs no host unzip at all.
+    // Defaults ON (opt out with DENDRO_GPU_BH_WAMR=0 / DENDRO_GPU_WAMR=0).
     static const bool skip_host_unzip = []() {
         const char* a = std::getenv("DENDRO_GPU_BH_WAMR");
         const char* b = std::getenv("DENDRO_GPU_WAMR");
         return bssn::BSSN_REFINEMENT_MODE == bssn::RefinementMode::BH_WAMR &&
-               a && a[0] == '1' && b && b[0] == '1' &&
+               !(a && a[0] == '0') && !(b && b[0] == '0') &&
                !std::getenv("DENDRO_GPU_WAMR_VERIFY");
     }();
     if (!skip_host_unzip) {
@@ -1787,11 +1788,11 @@ bool BSSNCtxGPU::is_remesh() {
     } else if (bssn::BSSN_REFINEMENT_MODE == bssn::RefinementMode::BH_WAMR) {
         // The CPU driver (BSSNCtx::is_remesh) implements BH_WAMR; the GPU
         // context did not, so GPU runs with the production parameter files
-        // (BSSN_REFINEMENT_MODE = 4) never remeshed. Mirrored here, gated by
-        // DENDRO_GPU_BH_WAMR=1 (default OFF, i.e. historical behaviour).
+        // (BSSN_REFINEMENT_MODE = 4) never remeshed. Mirrored here; DEFAULT ON
+        // since 2026-11-09 (DENDRO_GPU_BH_WAMR=0 restores the old behaviour).
         static const bool gpu_bh_wamr = []() {
             const char* e = std::getenv("DENDRO_GPU_BH_WAMR");
-            return e && e[0] == '1' && e[1] == '\0';
+            return !(e && e[0] == '0');  // DEFAULT ON (=0 restores no-remesh)
         }();
         if (gpu_bh_wamr) {
             const bool isR1 = bssn::isRemeshBH(m_uiMesh, m_uiBHLoc,
@@ -1799,7 +1800,7 @@ bool BSSNCtxGPU::is_remesh() {
                                                this->get_bh_loc_time_history());
             static const bool dev_wamr = []() {
                 const char* e = std::getenv("DENDRO_GPU_WAMR");
-                return e && e[0] == '1' && e[1] == '\0';
+                return !(e && e[0] == '0');  // DEFAULT ON (=0: host WAMR)
             }();
             static const bool dev_verify =
                 std::getenv("DENDRO_GPU_WAMR_VERIFY") != nullptr;

@@ -125,3 +125,7 @@ psi4 agrees with the serial/tree-search run to 4e-19..1e-18 abs. Cumulative for 
 Remesh *test* (device WAMR) total over 33 tests: 2.3 s (host version ~2 s per test at this size). Remaining per-remesh cost: host grid transfer (~0.45 s DVec::grid_transfer + ~0.3 s vector/mpi-ctx re-creation) and rest of ReMesh (~0.3 s).
 Run H (host WAMR at production depth) crashed: I rebuilt the binary while it was starting (bus error), not a code issue; meshprobe host-vs-device comparison stands (26.3 s -> 0.47 s test).
 Env summary for adaptive production runs: `DENDRO_GPU_BH_WAMR=1 DENDRO_GPU_WAMR=1`, OMP threads >1 (`--bind-to none`/`--cpus-per-task`); defaults changed in dendrolib: binary-search block setup ON (verify/restore knobs above), redundant 2nd device-mesh upload OFF (`DENDRO_REMESH_DOUBLE_UPLOAD=1` restores).
+
+## DEFAULT CHANGE (2026-11-09, your decision): GPU BH_WAMR remeshing + device WAMR are now ON by default
+`BSSN_REFINEMENT_MODE=4` runs on the GPU now remesh like the CPU driver. Opt out: `DENDRO_GPU_BH_WAMR=0` (old no-remesh behaviour), `DENDRO_GPU_WAMR=0` (host WAMR test). Verified default-on: meshprobe mode 4, 12/12 remeshes, ETS 28.0 s.
+Still to do: a longer-run physics comparison of GPU adaptive vs CPU path (only short windows checked so far).
