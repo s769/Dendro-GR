@@ -173,3 +173,12 @@ Remaining per-remesh host cost (balance+partition, Mesh ctor, SendRecvCompute ~0
 
 ## q=2 check of the CFL 0.4 / remesh 80 schedule (cap 13, T=110; run_q_cfl.sh) -- 2026-11-11
 ETS 1087 s (CFL 0.25, rm50) -> 690 s (CFL 0.4, rm80), -37%; but the two waveforms differ by max|dphase| 0.026 rad, max|dz|/max|z| 0.025 (r=25 shell, |z|>10% of max; q=2 merger at t~102) -- 3x-8x larger than at q=1 (0.003). Cap 13 is itself less converged for q=2 (smaller BH), so this difference may just be cap-13 discretization noise, or a genuine schedule effect: NOT validated. Policy: keep CFL 0.25 / remesh 50 as the default for every q != 1 until a per-q convergence run (cap 14 reference, below) shows the schedule change is below the cap-13 error. (q=1: validated, 0.0032 rad.)
+
+## RESOLUTION of the schedule question (2026-11-11): CFL must stay 0.25; remesh interval 80-100 is free
+Same-resolution comparisons against the baseline (CFL 0.25, remesh 50), psi4_22 r=25 shell, |z|>10% of max, T=110:
+| case | change | max|dphase| | max|dz|/max|z| | ETS change |
+| q2 cap 13 | remesh 80 only (CFL 0.25) | 0.0001 | 0.0001 | -(~10%) |
+| q2 cap 13 | CFL 0.4 + remesh 80 | 0.026 | 0.025 | -37% |
+| q4 cap 14 | CFL 0.4 + remesh 80 | 0.048 | 0.020 | -38% (1924 vs 3089 s) |
+| q1 cap 13 (vs cap-14 ref) | CFL 0.4 + remesh 80 | 0.0032 | 0.0031 (baseline 0.0073) | -48% |
+=> the remesh interval is harmless (1e-4 rad at q=2, 7e-3 = baseline at q=1); a larger CFL changes the answer by 0.03-0.05 rad for q = 2, 4 (a systematic RK4 time-integration shift), and the *apparent improvement* at q=1 (error vs cap 14 decreasing with CFL up to 0.5) is a compensation of a negative time error against the positive cap-13 spatial error, not convergence. Policy: CFL 0.25 (or lower) in all production runs; remesh interval may be raised to 80-100 steps (-10 to -13% wall). Do not use the CFL speedup. (A genuine step-count lever would need a higher-order/different time integrator or LTS -- not pursued.)
