@@ -61,7 +61,7 @@ prep "${OUT}" 0.5
 cd "${OUT}"
 echo "==== np1 ====" | tee -a "${SUMMARY}"
 START=$(date +%s)
-mpirun -np 1 env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
+mpirun -np 1 --bind-to none env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
   "${BIN}" "${OUT}/local.par.toml" 1 > "${LOGDIR}/tier25_q8_np1_busy.log" 2>&1 || true
 ETS=$(grep -E 'ETS time \(max\)' "${LOGDIR}/tier25_q8_np1_busy.log" | sed 's/\x1b\[[0-9;]*m//g' | tail -1 | awk '{print $NF}' || true)
 echo "tag=np1 wall_sec=$(( $(date +%s) - START )) ets=${ETS:-NA}" | tee -a "${SUMMARY}"

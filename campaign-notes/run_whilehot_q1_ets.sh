@@ -14,7 +14,7 @@ cd "${OUT}/WHILEHOT"
 echo "host $(hostname) $(date -Is) q1_WHILEHOT" | tee -a "${LOG}"
 echo "==== q1 WHILEHOT ====" | tee -a "${LOG}"
 START=$(date +%s)
-mpirun -np 1 env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 DENDRO_RHS_PT_ASYNC_WHILEHOT=1 \
+mpirun -np 1 --bind-to none env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 DENDRO_RHS_PT_ASYNC_WHILEHOT=1 \
   "${BIN}" local.par.toml 1 >run.log 2>&1 || {
   echo FAIL_WHILEHOT_q1 | tee -a "${LOG}"
   tail -40 run.log | tee -a "${LOG}"

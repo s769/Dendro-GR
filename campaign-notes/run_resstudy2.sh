@@ -32,7 +32,7 @@ for k,v in [("BSSN_RESTORE_SOLVER","0"),("BSSN_MAXDEPTH","$cap"),("BSSN_BH1_MAX_
 p.write_text(t)
 PY
   ( cd $d; s=$(date +%s)
-    CUDA_VISIBLE_DEVICES=$gpu mpirun -np 1 env OMP_NUM_THREADS=8 TP_OMP_THREADS=8 DENDRO_RHS_PT_ASYNC=1 DENDRO_GW_SHELL_ONLY=1 DENDRO_BH_TRACK_FREQ=1 DENDRO_TIME_REMESH=1 $BIN local.par.toml 1 > run.log 2>&1
+    CUDA_VISIBLE_DEVICES=$gpu mpirun -np 1 --bind-to none env OMP_NUM_THREADS=8 TP_OMP_THREADS=8 DENDRO_RHS_PT_ASYNC=1 DENDRO_GW_SHELL_ONLY=1 DENDRO_BH_TRACK_FREQ=1 DENDRO_TIME_REMESH=1 $BIN local.par.toml 1 > run.log 2>&1
     echo "$name cap=$cap tol=$tol gpu=$gpu wall=$(( $(date +%s)-s ))s $(sed 's/\x1b\[[0-9;]*m//g' run.log | grep 'ETS time' | tail -1)" >> $OUT/summary_T${TEND}.txt ) &
 done
 wait

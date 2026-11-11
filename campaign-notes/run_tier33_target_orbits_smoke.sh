@@ -70,7 +70,7 @@ done
 [[ -n "${SOL_LINKED}" ]] || echo "WARN: no TPID sol found for ${PREFIX}" | tee -a "${LOG}"
 
 START=$(date +%s)
-mpirun -np 1 env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
+mpirun -np 1 --bind-to none env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
   "${BIN}" local.par.toml 1 >run.log 2>&1 || {
   echo FAIL_T33_SMOKE | tee -a "${LOG}"
   tail -50 run.log | tee -a "${LOG}"

@@ -7,5 +7,5 @@ from pathlib import Path; import re
 p=Path("$d/local.par.toml"); t=p.read_text(); t=re.sub(r"BSSN_RK_TIME_END = [0-9.eE+-]+","BSSN_RK_TIME_END = 0.3",t); p.write_text(t)
 PY
 ln -sfn $HOME/Dendro-GR-runs/tpid_work/rit_q1_tpid_sol.bin $d/rit_q1_tpid_sol.bin; cd $d
-CUDA_VISIBLE_DEVICES=0 mpirun -np 1 env DENDRO_RHS_PT_ASYNC=1 DENDRO_UNZIP_CMP=1 $DENDRO_BUILD/BSSN_GR/bssnSolverCUDA local.par.toml 1 > run.log 2>&1
+CUDA_VISIBLE_DEVICES=0 mpirun -np 1 --bind-to none env DENDRO_RHS_PT_ASYNC=1 DENDRO_UNZIP_CMP=1 $DENDRO_BUILD/BSSN_GR/bssnSolverCUDA local.par.toml 1 > run.log 2>&1
 grep "unzip-cmp" run.log

@@ -29,7 +29,7 @@ for i in $(seq 1 $REPS); do runq8 "A$i" "$A"; runq8 "B$i" "$B"; done
 runq1() {
   local d="${HOME}/Dendro-GR-runs/ab_${LABEL}_q1_$1"; mkdir -p "$d"/{aeh,cp,dat,vtu}; cd "$d"
   ln -sfn "${HOME}/Dendro-GR-runs/tpid_work/rit_q1_tpid_sol.bin" rit_q1_tpid_sol.bin
-  mpirun -np 1 env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 $2 "$BIN" "${HOME}/Dendro-GR-runs/q1.smoke_cons.par.toml" 1 > run.log 2>&1
+  mpirun -np 1 --bind-to none env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 $2 "$BIN" "${HOME}/Dendro-GR-runs/q1.smoke_cons.par.toml" 1 > run.log 2>&1
 }
 if [[ -z "${SKIP_BITID:-}" ]]; then runq1 A "$A"; runq1 B "$B"; fi
 DA="${HOME}/Dendro-GR-runs/ab_${LABEL}_q1_A/dat"; DB="${HOME}/Dendro-GR-runs/ab_${LABEL}_q1_B/dat"

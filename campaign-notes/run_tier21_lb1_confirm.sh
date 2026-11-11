@@ -8,7 +8,7 @@ LOG="${HOME}/Dendro-GR/campaign-notes/tier0/tier21_lb1_ab.log"
 echo "==== confirm2 $(date -Is) ====" | tee -a "${LOG}"
 cd "${HOME}/Dendro-GR-runs/tier21_lb1_ab/ASYNC"
 START=$(date +%s)
-mpirun -np 1 env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
+mpirun -np 1 --bind-to none env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
   "${DENDRO_BUILD}/BSSN_GR/bssnSolverCUDA" local.par.toml 1 >run2.log 2>&1
 END=$(date +%s)
 ETS=$(grep -E 'ETS time \(max\)' run2.log | sed 's/\x1b\[[0-9;]*m//g' | tail -1 | awk '{print $NF}')

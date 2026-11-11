@@ -38,7 +38,7 @@ echo "host $(hostname) $(date -Is) ncu_lb1 NCU=${NCU}" | tee -a "${LOG}"
   --launch-skip 8 --launch-count 4 \
   --metrics launch__registers_per_thread,launch__shared_mem_per_block_dynamic,sm__warps_active.avg.pct_of_peak_sustained_active,l1tex__t_sectors_pipe_lsu_mem_local_op_ld.sum,l1tex__t_sectors_pipe_lsu_mem_local_op_st.sum \
   -o "${REP}" --force-overwrite \
-  mpirun -np 1 env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
+  mpirun -np 1 --bind-to none env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
     "${BIN}" "${OUT}/local.par.toml" 1 >ncu_run.log 2>&1 \
   || { echo "ncu/mpirun failed"; tail -30 ncu_run.log | tee -a "${LOG}"; }
 

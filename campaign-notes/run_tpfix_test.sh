@@ -8,5 +8,5 @@ d=$OUT/p_0.001_tpfix; rm -rf $d; mkdir -p $d/{aeh,cp,dat,vtu}; cp $OUT/p_0.001/l
 SOL=$HOME/Dendro-GR-runs/tpwarm/pert_warm36/tp_pert_warm36_tpid_sol.bin
 ln -sfn $SOL $d/rit_q1_tpid_sol.bin
 ( cd $d; s=$(date +%s)
-  CUDA_VISIBLE_DEVICES=0 mpirun -np 1 env OMP_NUM_THREADS=8 DENDRO_RHS_PT_ASYNC=1 DENDRO_MESH_REPLAY=$REC $BIN local.par.toml 1 > run.log 2>&1
+  CUDA_VISIBLE_DEVICES=0 mpirun -np 1 --bind-to none env OMP_NUM_THREADS=8 DENDRO_RHS_PT_ASYNC=1 DENDRO_MESH_REPLAY=$REC $BIN local.par.toml 1 > run.log 2>&1
   echo "tpfix wall=$(( $(date +%s)-s ))s $(sed 's/\x1b\[[0-9;]*m//g' run.log | grep 'ETS time' | tail -1)" > $OUT/tpfix.done )

@@ -49,7 +49,7 @@ PY
   cd "${d}"
   echo "==== ${tag} fac=${fac} ====" | tee -a "${LOG}"
   START=$(date +%s)
-  mpirun -np 1 env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
+  mpirun -np 1 --bind-to none env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
     "${BIN}" "${d}/local.par.toml" 1 >run.log 2>&1 || {
       echo "FAIL ${tag}" | tee -a "${LOG}"; tail -30 run.log | tee -a "${LOG}"; return 1; }
   END=$(date +%s)

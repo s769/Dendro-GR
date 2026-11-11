@@ -14,7 +14,7 @@ t=re.sub(r"BSSN_GW_RADAII = \[[^\]]*\]","BSSN_GW_RADAII = [10.0,12.0,15.0,18.0,2
 p.write_text(t)
 PY
   ln -sfn $HOME/Dendro-GR-runs/tpid_work/rit_q1_tpid_sol.bin $d/rit_q1_tpid_sol.bin; cd $d
-  CUDA_VISIBLE_DEVICES=$2 mpirun -np 1 env DENDRO_RHS_PT_ASYNC=1 $3 $BIN local.par.toml 1 > run.log 2>&1
+  CUDA_VISIBLE_DEVICES=$2 mpirun -np 1 --bind-to none env DENDRO_RHS_PT_ASYNC=1 $3 $BIN local.par.toml 1 > run.log 2>&1
   echo "$1 ETS=$(sed 's/\x1b\[[0-9;]*m//g' run.log | grep 'ETS time (max)' | tail -1 | awk '{print $NF}')"
 }
 run full 0 "DENDRO_GW_SHELL_ONLY=0" &

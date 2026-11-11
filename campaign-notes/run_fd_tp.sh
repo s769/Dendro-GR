@@ -28,9 +28,10 @@ PY
 run() { # tag gpu mode(record|replay)
   ( cd $OUT/$1; s=$(date +%s)
     if [ "$3" = record ]; then E="DENDRO_MESH_RECORD=$REC"; else E="DENDRO_MESH_REPLAY=$REC"; fi
-    CUDA_VISIBLE_DEVICES=$2 mpirun -np 1 env OMP_NUM_THREADS=${OMPT:-8} DENDRO_RHS_PT_ASYNC=1 DENDRO_GW_SHELL_ONLY=1 DENDRO_BH_TRACK_FREQ=1 $E $BIN local.par.toml 1 > run.log 2>&1
+    CUDA_VISIBLE_DEVICES=$2 mpirun -np 1 --bind-to none env OMP_NUM_THREADS=${OMPT:-8} DENDRO_RHS_PT_ASYNC=1 DENDRO_GW_SHELL_ONLY=1 DENDRO_BH_TRACK_FREQ=1 $E $BIN local.par.toml 1 > run.log 2>&1
     echo "$1 wall=$(( $(date +%s)-s ))s $(sed 's/\x1b\[[0-9;]*m//g' run.log | grep 'ETS time' | tail -1)" >> $OUT/summary.txt )
 }
+if [ -z "${REPLAY_ONLY:-}" ]; then
 # fiducial: base TP solution, record the mesh sequence
 setup fid $M0; ln -sfn $TPB $OUT/fid/tp_q001_tpid_sol.bin; run fid 0 record &
 FID=$!
@@ -44,6 +45,7 @@ for e in $EPS; do
   done
 done
 wait $FID
+fi
 i=0
 for e in $EPS; do for sgn in p m; do run ${sgn}_$e $((i%4)) replay & i=$((i+1)); done; done
 wait

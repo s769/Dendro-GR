@@ -23,9 +23,9 @@ PY
   ln -sfn "${TPID}" "${d}/rit_q1_tpid_sol.bin"
   cd "${d}"
   if [[ "$mode" == record ]]; then
-    mpirun -np 1 env DENDRO_RHS_PT_ASYNC=1 DENDRO_MESH_RECORD="${meshdir}" "${BIN}" "${d}/local.par.toml" 1 >run.log 2>&1
+    mpirun -np 1 --bind-to none env DENDRO_RHS_PT_ASYNC=1 DENDRO_MESH_RECORD="${meshdir}" "${BIN}" "${d}/local.par.toml" 1 >run.log 2>&1
   else
-    mpirun -np 1 env DENDRO_RHS_PT_ASYNC=1 DENDRO_MESH_REPLAY="${meshdir}" "${BIN}" "${d}/local.par.toml" 1 >run.log 2>&1
+    mpirun -np 1 --bind-to none env DENDRO_RHS_PT_ASYNC=1 DENDRO_MESH_REPLAY="${meshdir}" "${BIN}" "${d}/local.par.toml" 1 >run.log 2>&1
   fi
   python3 - <<PY
 from pathlib import Path

@@ -46,7 +46,7 @@ PY
   esac
   echo "==== ${mode} ====" | tee -a "${LOG}"
   START=$(date +%s)
-  if ! mpirun -np 1 env -u CUDA_VISIBLE_DEVICES "${env_rhs[@]}" \
+  if ! mpirun -np 1 --bind-to none env -u CUDA_VISIBLE_DEVICES "${env_rhs[@]}" \
       "${BIN}" "${d}/local.par.toml" 1 >run.log 2>&1; then
     echo "FAIL ${mode}" | tee -a "${LOG}"
     tail -20 run.log | tee -a "${LOG}"

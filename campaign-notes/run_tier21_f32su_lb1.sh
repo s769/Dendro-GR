@@ -35,7 +35,7 @@ PY
   esac
   echo "==== ${mode} ====" | tee -a "${LOG}"
   START=$(date +%s)
-  mpirun -np 1 env -u CUDA_VISIBLE_DEVICES "${env_rhs[@]}" \
+  mpirun -np 1 --bind-to none env -u CUDA_VISIBLE_DEVICES "${env_rhs[@]}" \
     "${BIN}" "${d}/local.par.toml" 1 >run.log 2>&1
   END=$(date +%s)
   ETS=$(grep -E 'ETS time \(max\)' run.log | sed 's/\x1b\[[0-9;]*m//g' | tail -1 | awk '{print $NF}')

@@ -27,7 +27,7 @@ ln -sfn "${SOL}" "${OUT}/ASYNC/${PREFIX}_tpid_sol.bin"
 cd "${OUT}/ASYNC"
 echo "host $(hostname) $(date -Is) lb1_ab" | tee "${LOG}"
 START=$(date +%s)
-mpirun -np 1 env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
+mpirun -np 1 --bind-to none env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
   "${BIN}" local.par.toml 1 >run.log 2>&1
 END=$(date +%s)
 ETS=$(grep -E 'ETS time \(max\)' run.log | sed 's/\x1b\[[0-9;]*m//g' | tail -1 | awk '{print $NF}')

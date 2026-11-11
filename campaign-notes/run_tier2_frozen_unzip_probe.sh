@@ -28,11 +28,11 @@ cd "${OUT}"
 echo "host $(hostname) $(date -Is) frozen_unzip_probe" | tee -a "${LOG}"
 for K in 2 4 8; do
   echo "==== K_BENCH=${K} ====" | tee -a "${LOG}"
-  mpirun -np 1 env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
+  mpirun -np 1 --bind-to none env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
     DENDRO_UNZIP_K_BENCH="${K}" \
     "${BIN}" "${OUT}/local.par.toml" 1 >> "${LOG}" 2>&1 || true
   echo "==== KSHARE=${K} ====" | tee -a "${LOG}"
-  mpirun -np 1 env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
+  mpirun -np 1 --bind-to none env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
     DENDRO_UNZIP_KSHARE="${K}" \
     "${BIN}" "${OUT}/local.par.toml" 1 >> "${LOG}" 2>&1 || true
 done

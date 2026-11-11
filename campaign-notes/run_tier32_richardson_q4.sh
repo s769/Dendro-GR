@@ -59,7 +59,7 @@ run_one() {
   ln -sfn "${SOL}" "${d}/${PREFIX}_tpid_sol.bin"
   cd "${d}"
   echo "==== record+evolve ${tag} depth=${depth} ====" | tee -a "${LOG}"
-  if ! mpirun -np 1 env -u CUDA_VISIBLE_DEVICES \
+  if ! mpirun -np 1 --bind-to none env -u CUDA_VISIBLE_DEVICES \
       DENDRO_RHS_PT_ASYNC=1 DENDRO_MESH_RECORD="${mesh}" \
       "${BIN}" "${d}/local.par.toml" 1 >run.log 2>&1; then
     echo "FAIL ${tag} exit=$?" | tee -a "${LOG}"

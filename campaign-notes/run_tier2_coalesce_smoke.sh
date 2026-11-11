@@ -26,7 +26,7 @@ ln -sfn "${SOL}" "${OUT}/mesh_q8_tpid_sol.bin"
 cd "${OUT}"
 : > "${LOG}"
 echo "host $(hostname) $(date -Is) gather_stats" | tee -a "${LOG}"
-mpirun -np 1 env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
+mpirun -np 1 --bind-to none env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
   DENDRO_UNZIP_SPLIT=2 DENDRO_UNZIP_GATHER_STATS=1 \
   "${BIN}" "${OUT}/local.par.toml" 1 >> "${LOG}" 2>&1 || true
 grep -E 'unzip-gather-stats|unzip-split|ETS time' "${LOG}" | sed 's/\x1b\[[0-9;]*m//g' | tee "${LOG}.summary"

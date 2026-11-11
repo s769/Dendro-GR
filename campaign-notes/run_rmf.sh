@@ -22,7 +22,7 @@ for k,v in [("BSSN_RESTORE_SOLVER","0"),("BSSN_MAXDEPTH","$CAP"),("BSSN_BH1_MAX_
             ("BSSN_CFL_FACTOR","$c"),("BSSN_REMESH_TEST_FREQ","$rmf"),("BSSN_GW_EXTRACT_FREQ","$gwf"),("BSSN_IO_OUTPUT_FREQ","0"),("BSSN_CHECKPT_FREQ","0")]: sub(k,v)
 p.write_text(t)
 PY
-  ( cd $d; s=$(date +%s); CUDA_VISIBLE_DEVICES=$((GPU0+i)) mpirun -np 1 env OMP_NUM_THREADS=8 DENDRO_RHS_PT_ASYNC=1 DENDRO_GW_SHELL_ONLY=1 DENDRO_BH_TRACK_FREQ=1 $BIN local.par.toml 1 > run.log 2>&1
+  ( cd $d; s=$(date +%s); CUDA_VISIBLE_DEVICES=$((GPU0+i)) mpirun -np 1 --bind-to none env OMP_NUM_THREADS=8 DENDRO_RHS_PT_ASYNC=1 DENDRO_GW_SHELL_ONLY=1 DENDRO_BH_TRACK_FREQ=1 $BIN local.par.toml 1 > run.log 2>&1
     echo "rmf$r wall=$(( $(date +%s)-s ))s $(sed 's/\x1b\[[0-9;]*m//g' run.log | grep 'ETS time' | tail -1)" >> $OUT/summary_rmf.txt ) &
   i=$((i+1))
 done; wait; echo RMF_DONE >> $OUT/summary_rmf.txt

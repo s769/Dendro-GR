@@ -44,7 +44,7 @@ fi
   --launch-skip 2 --launch-count 4 \
   --section LaunchStats --section Occupancy --section MemoryWorkloadAnalysis \
   -o "${REP}" \
-  mpirun -np 1 env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
+  mpirun -np 1 --bind-to none env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
     DENDRO_UNZIP_SPLIT=2 \
     "${BIN}" "${OUT}/local.par.toml" 1 \
   2>&1 | tee -a "${LOG}"

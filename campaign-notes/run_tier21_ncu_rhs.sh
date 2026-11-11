@@ -41,7 +41,7 @@ echo "host $(hostname) $(date -Is) ncu_rhs NCU=${NCU}" | tee -a "${LOG}"
   --section LaunchStats --section Occupancy --section MemoryWorkloadAnalysis \
   --section SchedulerStats --section WarpStateStats \
   -o "${REP}" \
-  mpirun -np 1 env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
+  mpirun -np 1 --bind-to none env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
     "${BIN}" "${OUT}/local.par.toml" 1 \
   2>&1 | tee -a "${LOG}"
 

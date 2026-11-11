@@ -16,7 +16,7 @@ p.write_text(t)
 PY
   ln -sfn $HOME/Dendro-GR-runs/tpid_work/rit_q1_tpid_sol.bin $d/rit_q1_tpid_sol.bin; cd $d
   E="DENDRO_GW_SHELL_ONLY=0"; [[ $mode == shell ]] && E="DENDRO_GW_SHELL_ONLY=1"
-  CUDA_VISIBLE_DEVICES=0 mpirun -np 1 env DENDRO_RHS_PT_ASYNC=1 DENDRO_TIME_EXTRACT=1 $E $BIN local.par.toml 1 > run.log 2>&1
+  CUDA_VISIBLE_DEVICES=0 mpirun -np 1 --bind-to none env DENDRO_RHS_PT_ASYNC=1 DENDRO_TIME_EXTRACT=1 $E $BIN local.par.toml 1 > run.log 2>&1
   echo "== $mode: $(grep extract-time run.log | tail -1)"; sed 's/\x1b\[[0-9;]*m//g' run.log | grep "ETS time (max)"
 done
 cd $HOME/Dendro-GR-runs

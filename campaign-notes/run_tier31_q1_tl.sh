@@ -32,7 +32,7 @@ fi
 
 rm -f "${DUMP}"
 cd "${OUT}"
-mpirun -np 1 env -u CUDA_VISIBLE_DEVICES \
+mpirun -np 1 --bind-to none env -u CUDA_VISIBLE_DEVICES \
   DENDRO_RHS_PT_ASYNC=1 DENDRO_MESH_REPLAY="${REC}" \
   DENDRO_DUMP_TL_GAUGE="${DUMP}" \
   "${BIN}" "${OUT}/local.par.toml" 1 2>&1 | tee -a "${LOG}"

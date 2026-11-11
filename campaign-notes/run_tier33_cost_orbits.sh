@@ -48,7 +48,7 @@ PY
   cd "${d}"
   echo "==== cost ${tag} N=${Nf} ====" | tee -a "${LOG}"
   START=$(date +%s)
-  if ! mpirun -np 1 env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
+  if ! mpirun -np 1 --bind-to none env -u CUDA_VISIBLE_DEVICES DENDRO_RHS_PT_ASYNC=1 \
       "${BIN}" local.par.toml 1 >run.log 2>&1; then
     echo "FAIL_${tag}" | tee -a "${LOG}"
     tail -30 run.log | tee -a "${LOG}"
