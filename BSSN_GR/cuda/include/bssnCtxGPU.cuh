@@ -45,9 +45,9 @@ enum VL {
     GPU_EV_UZ_OUT,
     END
 };
-typedef ot::DVector<DendroScalar, unsigned int> DVec;
+typedef ot::DVector<DendroScalar, unsigned long> DVec;
 
-class BSSNCtxGPU : public ts::Ctx<BSSNCtxGPU, DendroScalar, unsigned int> {
+class BSSNCtxGPU : public ts::Ctx<BSSNCtxGPU, DendroScalar, unsigned long> {
    protected:
     device::MeshGPU m_mesh_cpu;
 

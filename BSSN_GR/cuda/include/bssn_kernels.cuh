@@ -35,14 +35,14 @@ template <int pw, int pencils, int pencil_sz, int BATCHED_BLOCKS_SZ>
 GLOBAL_FUNC void launch_dir_x_deriv_kernel(const DEVICE_REAL* const u,
                                            BSSN_EVAR_DERIVS* deriv_evars,
                                            BlockGPU3D* blk, DEVICE_UINT nblocks,
-                                           DEVICE_UINT szpdof_uz) {
+                                           size_t szpdof_uz) {
     // includes x-derivs here.
     const DEVICE_UINT BLK_ID = GPUDevice::block_id_z();
     const DEVICE_UINT BLK_SZ = (blk[BLK_ID].m_aligned_sz[0]) *
                                (blk[BLK_ID].m_aligned_sz[1]) *
                                (blk[BLK_ID].m_aligned_sz[2]);
     const DEVICE_UINT offset     = blk[BLK_ID].m_offset;
-    const DEVICE_UINT sz_per_dof = szpdof_uz;
+    const size_t sz_per_dof = szpdof_uz;
 
     const DEVICE_REAL* const alpha =
         &u[bssn::VAR::U_ALPHA * sz_per_dof + offset];
@@ -97,14 +97,14 @@ template <int pw, int pencils, int pencil_sz, int BATCHED_BLOCKS_SZ>
 GLOBAL_FUNC void launch_dir_y_deriv_kernel(const DEVICE_REAL* const u,
                                            BSSN_EVAR_DERIVS* deriv_evars,
                                            BlockGPU3D* blk, DEVICE_UINT nblocks,
-                                           DEVICE_UINT szpdof_uz) {
+                                           size_t szpdof_uz) {
     // includes y-derivs here.
     const DEVICE_UINT BLK_ID = GPUDevice::block_id_z();
     const DEVICE_UINT BLK_SZ = (blk[BLK_ID].m_aligned_sz[0]) *
                                (blk[BLK_ID].m_aligned_sz[1]) *
                                (blk[BLK_ID].m_aligned_sz[2]);
     const DEVICE_UINT offset     = blk[BLK_ID].m_offset;
-    const DEVICE_UINT sz_per_dof = szpdof_uz;
+    const size_t sz_per_dof = szpdof_uz;
 
     const DEVICE_REAL* const alpha =
         &u[bssn::VAR::U_ALPHA * sz_per_dof + offset];
@@ -154,7 +154,7 @@ GLOBAL_FUNC void launch_dir_y_deriv_kernel(const DEVICE_REAL* const u,
 
 template <typename T>
 GLOBAL_FUNC __launch_bounds__(1024) void cuda_bssn_enforce_evar_cons(
-    T* u, unsigned int lb, unsigned int le, T chi_floor, unsigned int szpdof,
+    T* u, unsigned int lb, unsigned int le, T chi_floor, size_t szpdof,
     double* block_mins) {
     const T CHI_FLOOR = chi_floor;
     double t_min_det  = DBL_MAX;
@@ -435,7 +435,7 @@ DEVICE_FUNC void eval_rhs(DEVICE_REAL* const dptr_Fu,
                           const DEVICE_REAL* const dptr_u,
                           const BlockGPU3D* blk,
                           BSSN_EVAR_DERIVS* const deriv_evars,
-                          DEVICE_UINT szpdof_uz) {
+                          size_t szpdof_uz) {
     const DEVICE_UINT sz_per_dof  = szpdof_uz;
     const DEVICE_UINT Z_ID        = GPUDevice::block_id_x();
     const DEVICE_UINT si          = GPUDevice::thread_id_x() + pw;
@@ -578,7 +578,7 @@ template <int pw, int pencils, int pencil_sz, unsigned int BATCHED_GRAIN_SZ,
 GLOBAL_FUNC __launch_bounds__(256) void bssnrhs(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
     BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
-    BSSN_EVAR_DERIVS* const dptr_deriv_evars, DEVICE_UINT szpdof_uz,
+    BSSN_EVAR_DERIVS* const dptr_deriv_evars, size_t szpdof_uz,
     DEVICE_REAL ko_sigma) {
     const DEVICE_UINT NUM_BATCHES = nblocks / BATCHED_GRAIN_SZ + 1;
     const DEVICE_UINT blk_stride  = GPUDevice::grid_dim_x();
@@ -1090,7 +1090,7 @@ template <int pw, unsigned int nx, int pencil_sz>
 GLOBAL_FUNC __launch_bounds__(256, 2) void compute_all_derivs(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
     BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
-    BSSN_EVAR_DERIVS* const dptr_deriv_evars, DEVICE_UINT szpdof_uz,
+    BSSN_EVAR_DERIVS* const dptr_deriv_evars, size_t szpdof_uz,
     DEVICE_REAL ko_sigma) {
     SHARED_MEM DEVICE_REAL su[(pencil_sz) * (pencil_sz) * (pencil_sz)];
 
@@ -1125,7 +1125,7 @@ GLOBAL_FUNC __launch_bounds__(256, 2) void compute_all_derivs(
 template <int pw, unsigned int nx, int pencil_sz>
 GLOBAL_FUNC __launch_bounds__(256, 2) void cahd_derivs(
     const DEVICE_REAL* const dptr_u, BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
-    BSSN_EVAR_DERIVS* const dptr_deriv_evars, DEVICE_UINT szpdof_uz,
+    BSSN_EVAR_DERIVS* const dptr_deriv_evars, size_t szpdof_uz,
     DEVICE_UINT bflag_only) {
     SHARED_MEM DEVICE_REAL su[(pencil_sz) * (pencil_sz) * (pencil_sz)];
     const DEVICE_INT Z_ID = GPUDevice::block_id_x();
@@ -1156,7 +1156,7 @@ template <int pw, unsigned int nx>
 GLOBAL_FUNC __launch_bounds__(343) void cahd_chi_rhs(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
     const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
-    const BSSN_EVAR_DERIVS* const ws, DEVICE_UINT szpdof_uz, DEVICE_REAL cahd_C,
+    const BSSN_EVAR_DERIVS* const ws, size_t szpdof_uz, DEVICE_REAL cahd_C,
     DEVICE_REAL dt, DEVICE_UINT bflag_only) {
     const DEVICE_INT Z_ID = GPUDevice::block_id_x();
     if (Z_ID >= nblocks) return;
@@ -1171,7 +1171,7 @@ GLOBAL_FUNC __launch_bounds__(343) void cahd_chi_rhs(
     const BlockGPU3D blk       = dptr_blk[Z_ID];
     const DEVICE_UINT offset   = blk.m_offset;
     const DEVICE_UINT BLK_SZ   = nx * nx * nx;
-    const DEVICE_UINT sz_per_dof = szpdof_uz;
+    const size_t sz_per_dof = szpdof_uz;
     const DEVICE_UINT pp       = k * nx * nx + j * nx + i;
 
     // the CPU radiative boundary condition overwrites the RHS on these face
@@ -1212,7 +1212,7 @@ GLOBAL_FUNC __launch_bounds__(343) void cahd_chi_rhs(
 template <int pw, unsigned int nx>
 GLOBAL_FUNC __launch_bounds__(343) void cahd_fused(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
-    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, size_t szpdof_uz,
     DEVICE_REAL cahd_C, DEVICE_REAL dt) {
     const DEVICE_INT Z_ID = GPUDevice::block_id_x();
     if (Z_ID >= nblocks) return;
@@ -1224,7 +1224,7 @@ GLOBAL_FUNC __launch_bounds__(343) void cahd_fused(
     const int j = pw + (tid / NI) % NI;
     const int k = pw + tid / (NI * NI);
     const DEVICE_UINT offset     = blk.m_offset;
-    const DEVICE_UINT sz_per_dof = szpdof_uz;
+    const size_t sz_per_dof = szpdof_uz;
     const DEVICE_UINT pp         = k * nx * nx + j * nx + i;
     SHARED_MEM DEVICE_REAL s[nx * nx * nx];
 
@@ -1268,7 +1268,7 @@ __device__ __forceinline__ constexpr int sym(int i, int j) {
 template <int pw, unsigned int nx, int MINB = 1>
 GLOBAL_FUNC __launch_bounds__(343, MINB) void cahd_fused_c(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
-    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, size_t szpdof_uz,
     DEVICE_REAL cahd_C, DEVICE_REAL dt) {
     using cahd_c::sym;
     constexpr int PB[6] = {0, 0, 0, 1, 1, 2};   // pair (b,c) of the packed symmetric index (compile-time)
@@ -1283,7 +1283,7 @@ GLOBAL_FUNC __launch_bounds__(343, MINB) void cahd_fused_c(
     const int j = pw + (tid / NI) % NI;
     const int k = pw + tid / (NI * NI);
     const DEVICE_UINT offset     = blk.m_offset;
-    const DEVICE_UINT sz_per_dof = szpdof_uz;
+    const size_t sz_per_dof = szpdof_uz;
     const DEVICE_UINT pp         = k * nx * nx + j * nx + i;
     SHARED_MEM DEVICE_REAL s[nx * nx * nx];
     const DEVICE_REAL* const U = dptr_u + offset;
@@ -1462,9 +1462,9 @@ template <int pw, int nx, int pencil_sz>
 GLOBAL_FUNC __launch_bounds__(64) void eval_rhs2(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
     const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
-    BSSN_EVAR_DERIVS* const deriv_evars, DEVICE_UINT szpdof_uz,
+    BSSN_EVAR_DERIVS* const deriv_evars, size_t szpdof_uz,
     DEVICE_REAL ko_sigma) {
-    const DEVICE_UINT sz_per_dof = szpdof_uz;
+    const size_t sz_per_dof = szpdof_uz;
     const DEVICE_UINT Z_ID       = GPUDevice::block_id_x();
 
     const DEVICE_UINT si         = GPUDevice::thread_id_x() + pw;
@@ -1732,9 +1732,9 @@ template <int pw, int nx, int pencil_sz>
 GLOBAL_FUNC __launch_bounds__(64) void eval_rhs2a(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
     const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
-    BSSN_EVAR_DERIVS* const deriv_evars, DEVICE_UINT szpdof_uz,
+    BSSN_EVAR_DERIVS* const deriv_evars, size_t szpdof_uz,
     DEVICE_REAL ko_sigma) {
-    const DEVICE_UINT sz_per_dof = szpdof_uz;
+    const size_t sz_per_dof = szpdof_uz;
     const DEVICE_UINT Z_ID       = GPUDevice::block_id_x();
     const DEVICE_UINT V_ID       = GPUDevice::block_id_y();
 
@@ -2110,7 +2110,7 @@ HOST_FUNC void bssnrhs2(DEVICE_REAL* const dptr_Fu,
                         const DEVICE_REAL* const dptr_u, BlockGPU3D* dptr_blk,
                         DEVICE_UINT nblocks,
                         BSSN_EVAR_DERIVS* const dptr_deriv_evars,
-                        DEVICE_UINT szpdof_uz, DEVICE_REAL ko_sigma) {
+                        size_t szpdof_uz, DEVICE_REAL ko_sigma) {
     dim3 gb  = dim3(BATCHED_GRAIN_SZ, bssn::BSSN_NUM_VARS, 1);
     // dim3 tb = dim3(pencil_sz, pencil_sz, 1);
     dim3 tb  = dim3(13, 13, 1);
@@ -2152,7 +2152,7 @@ template <int pw, int nx, int pencil_sz, int bflag_sel = 0>
 #endif
 GLOBAL_FUNC __launch_bounds__(343, BSSN_STOCK_MINB) void eval_rhs3(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
-    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, size_t szpdof_uz,
     DEVICE_REAL ko_sigma) {
     extern __shared__ DEVICE_REAL shared_mem[];
     // __shared__ DEVICE_REAL su[pencil_sz * pencil_sz *pencil_sz];
@@ -2414,7 +2414,7 @@ GLOBAL_FUNC __launch_bounds__(343, BSSN_STOCK_MINB) void eval_rhs3(
 template <int pw, int nx, int pencil_sz>
 GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_pt(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
-    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, size_t szpdof_uz,
     DEVICE_REAL ko_sigma) {
     extern __shared__ DEVICE_REAL shared_mem[];
     DEVICE_REAL* su = shared_mem;
@@ -2566,7 +2566,7 @@ GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_pt(
 template <int pw, int nx, int pencil_sz>
 GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_pt_gmem(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
-    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, size_t szpdof_uz,
     DEVICE_REAL ko_sigma) {
     (void)pencil_sz;
     (void)nblocks;
@@ -2706,7 +2706,7 @@ GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_pt_gmem(
 template <int pw, int nx, int pencil_sz>
 GLOBAL_FUNC __launch_bounds__(343, 1) void eval_rhs3_pt_f32su(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
-    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, size_t szpdof_uz,
     DEVICE_REAL ko_sigma) {
     extern __shared__ DEVICE_REAL shared_mem[];
     float* su = reinterpret_cast<float*>(shared_mem);
@@ -2853,7 +2853,7 @@ template <int pw, int nx, int pencil_sz>
 // forced a tighter reg budget and worsened local spills (B0 NCU).
 GLOBAL_FUNC __launch_bounds__(343, 1) void eval_rhs3_pt_async(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
-    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, size_t szpdof_uz,
     DEVICE_REAL ko_sigma, DEVICE_UINT K_share) {
     extern __shared__ DEVICE_REAL shared_mem[];
     DEVICE_REAL* su = shared_mem;
@@ -3022,7 +3022,7 @@ GLOBAL_FUNC __launch_bounds__(343, 1) void eval_rhs3_pt_async(
 template <int pw, int nx, int pencil_sz>
 GLOBAL_FUNC __launch_bounds__(343, 1) void eval_rhs3_pt_async_defer(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
-    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, size_t szpdof_uz,
     DEVICE_REAL ko_sigma, DEVICE_UINT K_share) {
     extern __shared__ DEVICE_REAL shared_mem[];
     DEVICE_REAL* su = shared_mem;
@@ -3188,7 +3188,7 @@ template <int pw, int nx, int pencil_sz>
 // B1 CSE: single christoffel (igt/C*); longer live ranges. A/B vs async.
 GLOBAL_FUNC __launch_bounds__(343, 1) void eval_rhs3_pt_async_cse(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
-    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, size_t szpdof_uz,
     DEVICE_REAL ko_sigma, DEVICE_UINT K_share) {
     extern __shared__ DEVICE_REAL shared_mem[];
     DEVICE_REAL* su = shared_mem;
@@ -3354,7 +3354,7 @@ template <int pw, int nx, int pencil_sz>
 // B1 while-hot: early RIJ + scoped gt/chi seconds (no restencil).
 GLOBAL_FUNC __launch_bounds__(343, 1) void eval_rhs3_pt_async_whilehot(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
-    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, size_t szpdof_uz,
     DEVICE_REAL ko_sigma, DEVICE_UINT K_share) {
     extern __shared__ DEVICE_REAL shared_mem[];
     DEVICE_REAL* su = shared_mem;
@@ -3520,7 +3520,7 @@ GLOBAL_FUNC __launch_bounds__(343, 1) void eval_rhs3_pt_async_whilehot(
 template <int pw, int nx, int pencil_sz>
 GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_pt_db(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
-    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, size_t szpdof_uz,
     DEVICE_REAL ko_sigma) {
     extern __shared__ DEVICE_REAL shared_mem[];
     DEVICE_REAL* su = shared_mem;  // su0; su1 = su + nx^3 (see gauge6_point_db)
@@ -3669,7 +3669,7 @@ GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_pt_db(
 template <int pw, int nx, int pencil_sz>
 GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_pt_kof32(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
-    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, size_t szpdof_uz,
     DEVICE_REAL ko_sigma) {
     extern __shared__ DEVICE_REAL shared_mem[];
     DEVICE_REAL* su = shared_mem;
@@ -3827,7 +3827,7 @@ GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_pt_kof32(
 template <int pw, int nx, int pencil_sz>
 GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_f32(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
-    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, size_t szpdof_uz,
     DEVICE_REAL ko_sigma) {
     // Same extern __shared__ type as other kernels in this TU (CUDA rule).
     extern __shared__ DEVICE_REAL shared_mem[];
@@ -3971,13 +3971,13 @@ GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_f32(
 template <int pw, int nx, int pencil_sz>
 HOST_FUNC inline void bssnrhs3_stock_boundary(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
-    BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, size_t szpdof_uz,
     DEVICE_REAL ko_sigma, cudaStream_t bdy_stream = 0);
 
 template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
 HOST_FUNC void bssnrhs3_f32(DEVICE_REAL* const dptr_Fu,
                             const DEVICE_REAL* const dptr_u, BlockGPU3D* dptr_blk,
-                            DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+                            DEVICE_UINT nblocks, size_t szpdof_uz,
                             DEVICE_REAL ko_sigma) {
     dim3 gb = dim3(nblocks, 1, 1);
     dim3 tb = dim3(7, 7, 7);
@@ -4006,7 +4006,7 @@ HOST_FUNC void bssnrhs3_f32(DEVICE_REAL* const dptr_Fu,
 template <int pw, int nx, int pencil_sz>
 GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_f32c(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
-    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, size_t szpdof_uz,
     DEVICE_REAL ko_sigma) {
     // Same extern __shared__ type as other kernels in this TU (CUDA rule).
     extern __shared__ DEVICE_REAL shared_mem[];
@@ -4149,7 +4149,7 @@ GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_f32c(
 template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
 HOST_FUNC void bssnrhs3_f32c(DEVICE_REAL* const dptr_Fu,
                             const DEVICE_REAL* const dptr_u, BlockGPU3D* dptr_blk,
-                            DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+                            DEVICE_UINT nblocks, size_t szpdof_uz,
                             DEVICE_REAL ko_sigma) {
     dim3 gb = dim3(nblocks, 1, 1);
     dim3 tb = dim3(7, 7, 7);
@@ -4176,7 +4176,7 @@ HOST_FUNC void bssnrhs3_f32c(DEVICE_REAL* const dptr_Fu,
 template <int pw, int nx, int pencil_sz>
 GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_f2d(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
-    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, size_t szpdof_uz,
     DEVICE_REAL ko_sigma) {
     extern __shared__ DEVICE_REAL shared_mem[];
     const int n3 = pencil_sz * pencil_sz * pencil_sz;
@@ -4187,7 +4187,7 @@ GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_f2d(
         reinterpret_cast<char*>(shared_mem) + su_bytes);
     DEVICE_REAL* DDu = Du + n3;
 
-    const DEVICE_UINT sz_per_dof = szpdof_uz;
+    const size_t sz_per_dof = szpdof_uz;
     const DEVICE_UINT lambda[4] = {1, 1, 1, 1};
     const DEVICE_REAL lambda_f[2] = {1.0, 0.0};
     const DEVICE_INT Z_ID = GPUDevice::block_id_x();
@@ -4268,7 +4268,7 @@ GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_f2d(
 template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
 HOST_FUNC void bssnrhs3_f2d(DEVICE_REAL* const dptr_Fu,
                             const DEVICE_REAL* const dptr_u, BlockGPU3D* dptr_blk,
-                            DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+                            DEVICE_UINT nblocks, size_t szpdof_uz,
                             DEVICE_REAL ko_sigma) {
     dim3 gb = dim3(nblocks, 1, 1);
     dim3 tb = dim3(7, 7, 7);
@@ -4293,7 +4293,7 @@ HOST_FUNC void bssnrhs3_f2d(DEVICE_REAL* const dptr_Fu,
 template <int pw, int nx, int pencil_sz>
 GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_derivs_ws(
     const DEVICE_REAL* const dptr_u, const BlockGPU3D* dptr_blk,
-    DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz, DEVICE_REAL* grad_ws) {
+    DEVICE_UINT nblocks, size_t szpdof_uz, DEVICE_REAL* grad_ws) {
     extern __shared__ DEVICE_REAL shared_mem[];
     DEVICE_REAL* su  = shared_mem;
     DEVICE_REAL* Du  = shared_mem + pencil_sz * pencil_sz * pencil_sz;
@@ -4305,7 +4305,7 @@ GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_derivs_ws(
     BlockGPU3D c_blk = dptr_blk[Z_ID];
     const BlockGPU3D* __restrict__ const blk = &c_blk;
     const DEVICE_UINT offset = blk->m_offset;
-    const DEVICE_UINT sz_per_dof = szpdof_uz;
+    const size_t sz_per_dof = szpdof_uz;
     const int pencils = pencil_sz;
 
     const DEVICE_REAL* __restrict__ const alpha =
@@ -4369,7 +4369,7 @@ GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_derivs_ws(
 template <int pw, int nx, int pencil_sz>
 GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_algebra_ws(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
-    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, size_t szpdof_uz,
     DEVICE_REAL ko_sigma, const DEVICE_REAL* grad_ws) {
     constexpr int INTERIOR = 7 * 7 * 7;
     const DEVICE_UINT nblocks_ws = nblocks;
@@ -4379,7 +4379,7 @@ GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_algebra_ws(
     BlockGPU3D c_blk = dptr_blk[Z_ID];
     const BlockGPU3D* __restrict__ const blk = &c_blk;
     const DEVICE_UINT offset = blk->m_offset;
-    const DEVICE_UINT sz_per_dof = szpdof_uz;
+    const size_t sz_per_dof = szpdof_uz;
 
     DEVICE_REAL* __restrict__ const a_rhs =
         &dptr_Fu[bssn::VAR::U_ALPHA * sz_per_dof + offset];
@@ -4505,7 +4505,7 @@ GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_algebra_ws(
 template <int pw, int pencil_sz, int nx>
 HOST_FUNC void bssnrhs3_ws(DEVICE_REAL* const dptr_Fu,
                            const DEVICE_REAL* const dptr_u, BlockGPU3D* dptr_blk,
-                           DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+                           DEVICE_UINT nblocks, size_t szpdof_uz,
                            DEVICE_REAL ko_sigma, DEVICE_REAL* grad_ws) {
     dim3 gb = dim3(nblocks, 1, 1);
     dim3 tb = dim3(7, 7, 7);
@@ -4529,7 +4529,7 @@ HOST_FUNC void bssnrhs3_ws(DEVICE_REAL* const dptr_Fu,
 template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
 HOST_FUNC void bssnrhs3(DEVICE_REAL* const dptr_Fu,
                         const DEVICE_REAL* const dptr_u, BlockGPU3D* dptr_blk,
-                        DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+                        DEVICE_UINT nblocks, size_t szpdof_uz,
                         DEVICE_REAL ko_sigma) {
     dim3 gb = dim3(nblocks, 1, 1);
     dim3 tb = dim3(7, 7, 7);
@@ -4553,7 +4553,7 @@ HOST_FUNC void launch_compact_bdy_blocks(const BlockGPU3D* in, BlockGPU3D* out,
 template <int pw, int nx, int pencil_sz>
 HOST_FUNC inline void bssnrhs3_stock_boundary(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
-    BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, DEVICE_UINT szpdof_uz,
+    BlockGPU3D* dptr_blk, DEVICE_UINT nblocks, size_t szpdof_uz,
     DEVICE_REAL ko_sigma, cudaStream_t bdy_stream) {
     dim3 tb = dim3(7, 7, 7);
     const int smem = 13 * 13 * 13 * 8 * 3;
@@ -4626,7 +4626,7 @@ template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
 HOST_FUNC void bssnrhs3_pt(DEVICE_REAL* const dptr_Fu,
                            const DEVICE_REAL* const dptr_u,
                            BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
-                           DEVICE_UINT szpdof_uz, DEVICE_REAL ko_sigma) {
+                           size_t szpdof_uz, DEVICE_REAL ko_sigma) {
     dim3 gb = dim3(nblocks, 1, 1);
     dim3 tb = dim3(7, 7, 7);
     const int smem = 13 * 13 * 13 * 8;  // su only
@@ -4651,7 +4651,7 @@ template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
 HOST_FUNC void bssnrhs3_pt_async(DEVICE_REAL* const dptr_Fu,
                                  const DEVICE_REAL* const dptr_u,
                                  BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
-                                 DEVICE_UINT szpdof_uz, DEVICE_REAL ko_sigma,
+                                 size_t szpdof_uz, DEVICE_REAL ko_sigma,
                                  DEVICE_UINT K = 1, bool kshare = false) {
     // grid.x = shared block list; grid.y = ensemble members (leading dim on
     // unzipped vectors). K=1 preserves the prior single-member launch.
@@ -4687,7 +4687,7 @@ HOST_FUNC void bssnrhs3_pt_async(DEVICE_REAL* const dptr_Fu,
                            cudaFuncCachePreferL1);
     if (bdy_overlap) {
         for (DEVICE_UINT k = 0; k < K; ++k) {
-            const DEVICE_UINT stride = bssn::BSSN_NUM_VARS * szpdof_uz;
+            const size_t stride = (size_t)bssn::BSSN_NUM_VARS * szpdof_uz;
             bssnrhs3_stock_boundary<pw, nx, pencil_sz>(
                 dptr_Fu + k * stride, dptr_u + k * stride, dptr_blk, nblocks,
                 szpdof_uz, ko_sigma, s_bdy);
@@ -4697,7 +4697,7 @@ HOST_FUNC void bssnrhs3_pt_async(DEVICE_REAL* const dptr_Fu,
         dptr_Fu, dptr_u, dptr_blk, nblocks, szpdof_uz, ko_sigma, K_share);
     if (!bdy_overlap) {
         for (DEVICE_UINT k = 0; k < K; ++k) {
-            const DEVICE_UINT stride = bssn::BSSN_NUM_VARS * szpdof_uz;
+            const size_t stride = (size_t)bssn::BSSN_NUM_VARS * szpdof_uz;
             bssnrhs3_stock_boundary<pw, nx, pencil_sz>(
                 dptr_Fu + k * stride, dptr_u + k * stride, dptr_blk, nblocks,
                 szpdof_uz, ko_sigma);
@@ -4710,7 +4710,7 @@ template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
 HOST_FUNC void bssnrhs3_pt_async_defer(DEVICE_REAL* const dptr_Fu,
                                  const DEVICE_REAL* const dptr_u,
                                  BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
-                                 DEVICE_UINT szpdof_uz, DEVICE_REAL ko_sigma,
+                                 size_t szpdof_uz, DEVICE_REAL ko_sigma,
                                  DEVICE_UINT K = 1, bool kshare = false) {
     // grid.x = shared block list; grid.y = ensemble members (leading dim on
     // unzipped vectors). K=1 preserves the prior single-member launch.
@@ -4727,7 +4727,7 @@ HOST_FUNC void bssnrhs3_pt_async_defer(DEVICE_REAL* const dptr_Fu,
     eval_rhs3_pt_async_defer<pw, nx, pencil_sz><<<gb, tb, smem>>>(
         dptr_Fu, dptr_u, dptr_blk, nblocks, szpdof_uz, ko_sigma, K_share);
     for (DEVICE_UINT k = 0; k < K; ++k) {
-        const DEVICE_UINT stride = bssn::BSSN_NUM_VARS * szpdof_uz;
+        const size_t stride = (size_t)bssn::BSSN_NUM_VARS * szpdof_uz;
         bssnrhs3_stock_boundary<pw, nx, pencil_sz>(
             dptr_Fu + k * stride, dptr_u + k * stride, dptr_blk, nblocks,
             szpdof_uz, ko_sigma);
@@ -4739,7 +4739,7 @@ template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
 HOST_FUNC void bssnrhs3_pt_async_cse(DEVICE_REAL* const dptr_Fu,
                                  const DEVICE_REAL* const dptr_u,
                                  BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
-                                 DEVICE_UINT szpdof_uz, DEVICE_REAL ko_sigma,
+                                 size_t szpdof_uz, DEVICE_REAL ko_sigma,
                                  DEVICE_UINT K = 1, bool kshare = false) {
     // grid.x = shared block list; grid.y = ensemble members (leading dim on
     // unzipped vectors). K=1 preserves the prior single-member launch.
@@ -4756,7 +4756,7 @@ HOST_FUNC void bssnrhs3_pt_async_cse(DEVICE_REAL* const dptr_Fu,
     eval_rhs3_pt_async_cse<pw, nx, pencil_sz><<<gb, tb, smem>>>(
         dptr_Fu, dptr_u, dptr_blk, nblocks, szpdof_uz, ko_sigma, K_share);
     for (DEVICE_UINT k = 0; k < K; ++k) {
-        const DEVICE_UINT stride = bssn::BSSN_NUM_VARS * szpdof_uz;
+        const size_t stride = (size_t)bssn::BSSN_NUM_VARS * szpdof_uz;
         bssnrhs3_stock_boundary<pw, nx, pencil_sz>(
             dptr_Fu + k * stride, dptr_u + k * stride, dptr_blk, nblocks,
             szpdof_uz, ko_sigma);
@@ -4768,7 +4768,7 @@ template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
 HOST_FUNC void bssnrhs3_pt_async_whilehot(DEVICE_REAL* const dptr_Fu,
                                  const DEVICE_REAL* const dptr_u,
                                  BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
-                                 DEVICE_UINT szpdof_uz, DEVICE_REAL ko_sigma,
+                                 size_t szpdof_uz, DEVICE_REAL ko_sigma,
                                  DEVICE_UINT K = 1, bool kshare = false) {
     // grid.x = shared block list; grid.y = ensemble members (leading dim on
     // unzipped vectors). K=1 preserves the prior single-member launch.
@@ -4785,7 +4785,7 @@ HOST_FUNC void bssnrhs3_pt_async_whilehot(DEVICE_REAL* const dptr_Fu,
     eval_rhs3_pt_async_whilehot<pw, nx, pencil_sz><<<gb, tb, smem>>>(
         dptr_Fu, dptr_u, dptr_blk, nblocks, szpdof_uz, ko_sigma, K_share);
     for (DEVICE_UINT k = 0; k < K; ++k) {
-        const DEVICE_UINT stride = bssn::BSSN_NUM_VARS * szpdof_uz;
+        const size_t stride = (size_t)bssn::BSSN_NUM_VARS * szpdof_uz;
         bssnrhs3_stock_boundary<pw, nx, pencil_sz>(
             dptr_Fu + k * stride, dptr_u + k * stride, dptr_blk, nblocks,
             szpdof_uz, ko_sigma);
@@ -4798,7 +4798,7 @@ template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
 HOST_FUNC void bssnrhs3_pt_gmem(DEVICE_REAL* const dptr_Fu,
                                 const DEVICE_REAL* const dptr_u,
                                 BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
-                                DEVICE_UINT szpdof_uz, DEVICE_REAL ko_sigma) {
+                                size_t szpdof_uz, DEVICE_REAL ko_sigma) {
     dim3 gb = dim3(nblocks, 1, 1);
     dim3 tb = dim3(7, 7, 7);
     cudaFuncSetCacheConfig(device::eval_rhs3_pt_gmem<pw, nx, pencil_sz>,
@@ -4816,7 +4816,7 @@ template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
 HOST_FUNC void bssnrhs3_pt_f32su(DEVICE_REAL* const dptr_Fu,
                                  const DEVICE_REAL* const dptr_u,
                                  BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
-                                 DEVICE_UINT szpdof_uz, DEVICE_REAL ko_sigma) {
+                                 size_t szpdof_uz, DEVICE_REAL ko_sigma) {
     dim3 gb = dim3(nblocks, 1, 1);
     dim3 tb = dim3(7, 7, 7);
     const int smem = 13 * 13 * 13 * 4;  // float su only
@@ -4839,7 +4839,7 @@ template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
 HOST_FUNC void bssnrhs3_pt_db(DEVICE_REAL* const dptr_Fu,
                               const DEVICE_REAL* const dptr_u,
                               BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
-                              DEVICE_UINT szpdof_uz, DEVICE_REAL ko_sigma) {
+                              size_t szpdof_uz, DEVICE_REAL ko_sigma) {
     dim3 gb = dim3(nblocks, 1, 1);
     dim3 tb = dim3(7, 7, 7);
     // Two su tiles (su0/su1) for overlapped prefetch.
@@ -4864,7 +4864,7 @@ template <int pw, int pencil_sz, int nx, int BATCHED_GRAIN_SZ, int nstreams>
 HOST_FUNC void bssnrhs3_pt_kof32(DEVICE_REAL* const dptr_Fu,
                                  const DEVICE_REAL* const dptr_u,
                                  BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
-                                 DEVICE_UINT szpdof_uz, DEVICE_REAL ko_sigma) {
+                                 size_t szpdof_uz, DEVICE_REAL ko_sigma) {
     dim3 gb = dim3(nblocks, 1, 1);
     dim3 tb = dim3(7, 7, 7);
     const int smem = 13 * 13 * 13 * 8;
@@ -4884,7 +4884,7 @@ template <int pw, int nx, int pencil_sz>
 GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs4(
     DEVICE_REAL* const dptr_Fu, const DEVICE_REAL* const dptr_u,
     const BlockGPU3D* dptr_blk, DEVICE_UINT nblocks,
-    BSSN_EVAR_DERIVS* const dptr_deriv_evars, DEVICE_UINT szpdof_uz,
+    BSSN_EVAR_DERIVS* const dptr_deriv_evars, size_t szpdof_uz,
     DEVICE_REAL ko_sigma) {
     // extern __shared__ DEVICE_REAL shared_mem[];
 
@@ -5195,7 +5195,7 @@ HOST_FUNC void bssnrhs4(DEVICE_REAL* const dptr_Fu,
                         const DEVICE_REAL* const dptr_u, BlockGPU3D* dptr_blk,
                         DEVICE_UINT nblocks,
                         BSSN_EVAR_DERIVS* const dptr_deriv_evars,
-                        DEVICE_UINT szpdof_uz, DEVICE_REAL ko_sigma) {
+                        size_t szpdof_uz, DEVICE_REAL ko_sigma) {
     dim3 gb = dim3(nblocks, 1, 1);
     dim3 tb = dim3(7, 7, 7);
 
