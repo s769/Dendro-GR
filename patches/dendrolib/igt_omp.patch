@@ -1,0 +1,191 @@
+--- a/include/mesh.tcc	2026-11-11 05:01:19.179758010 -0600
++++ b/include/mesh.tcc	2026-11-11 05:33:02.088818623 -0600
+@@ -3912,7 +3912,11 @@
+     sendOfst.resize(npes);
+     recvOfst.resize(npes);
+ 
++    static const bool igt_tm = std::getenv("DENDRO_TIME_REMESH") != nullptr;
++    const double igt_t0 = igt_tm ? MPI_Wtime() : 0.0;
+     this->interGridTransferSendRecvCompute(pMesh);
++    if (igt_tm && !rank)
++        printf("[igt-phases] SendRecvCompute=%.3fs\n", MPI_Wtime() - igt_t0);
+     const unsigned int cg_sz_old = m_uiNumActualNodes;
+     const unsigned int cg_sz_new = pMesh->getDegOfFreedom();
+     const ot::TreeNode* m2prime  = m_uiM2Prime.data();
+@@ -3941,6 +3945,149 @@
+                         (2 * m_uiElementOrder + 1));
+     wVec_m2.resize(recvOfst[npes - 1] + recvC[npes - 1]);
+ 
++    // ---- fast path: single rank, INJECTION mode -> variables are independent;
++    // parallelize over variables with thread-local scratch (the generic loop
++    // below is serial and takes ~0.4-0.9 s per remesh at 2.2M nodes x 24 vars).
++    // DENDRO_IGT_OMP=0 disables.
++    {
++        static const bool igt_omp = []() {
++            const char* e = std::getenv("DENDRO_IGT_OMP");
++            return !(e && e[0] == '0');
++        }();
++        if (igt_omp && npes == 1 && m_uiIsActive && pMesh->isActive() &&
++            pMesh->getMPICommSize() == 1 && this->getMPICommSize() == 1 &&
++            mode == INTERGRID_TRANSFER_MODE::INJECTION && dof > 1) {
++            const unsigned int numM2PrimeElems = m_uiM2Prime.size();
++            if (numM2PrimeElems != pMesh->getNumLocalMeshElements()) {
++                std::cout << " seq::[Inter-grid Transfer error ]: Recvn DG "
++                             "elements: "
++                          << numM2PrimeElems << " m2 num local elements "
++                          << pMesh->getNumLocalMeshElements() << std::endl;
++                MPI_Abort(comm, 0);
++            }
++            const unsigned int* e2n_new = &(*(pMesh->getE2NMapping().begin()));
++            const unsigned int m2LocalElemBegin = pMesh->getElementLocalBegin();
++            const unsigned int m2LocalElemEnd   = pMesh->getElementLocalEnd();
++            const unsigned int m2LocalNodeBegin = pMesh->getNodeLocalBegin();
++            const unsigned int m2LocalNodeEnd   = pMesh->getNodeLocalEnd();
++            const unsigned int eleOrder         = pMesh->getElementOrder();
++            const unsigned int npe1             = eleOrder + 1;
++#pragma omp parallel
++            {
++                std::vector<T> wVec_t((size_t)numM2PrimeElems * m_uiNpE);
++                std::vector<T> nodalVals_t(m_uiNpE);
++                std::vector<double> im1_t(m_uiNpE), im2_t(m_uiNpE);
++#pragma omp for schedule(dynamic, 1)
++                for (int var = 0; var < (int)dof; var++) {
++                    T* vec = vecIn + ((size_t)var * cg_sz_old);
++                    T* out = vecOut + ((size_t)var * cg_sz_new);
++                    unsigned int m2primeCount = 0;
++                    for (unsigned int ele = m_uiElementLocalBegin;
++                         ele < m_uiElementLocalEnd; ele++) {
++                        const unsigned int fl =
++                            (m_uiAllElements[ele].getFlag() >> NUM_LEVEL_BITS);
++                        if (fl == OCT_SPLIT) {
++                            this->getElementNodalValues(
++                                vec, nodalVals_t.data(), ele, false,
++                                im1_t.data(), im2_t.data());
++                            for (unsigned int child = 0; child < NUM_CHILDREN;
++                                 child++) {
++                                const unsigned int cn =
++                                    m2prime[m2primeCount + child]
++                                        .getMortonIndex();
++                                this->parent2ChildInterpolation(
++                                    nodalVals_t.data(),
++                                    &wVec_t[(size_t)(m2primeCount + child) *
++                                            m_uiNpE],
++                                    cn, 3, im1_t.data(), im2_t.data());
++                            }
++                            m2primeCount += NUM_CHILDREN;
++                        } else if (fl == OCT_COARSE) {
++                            for (unsigned int child = 0; child < NUM_CHILDREN;
++                                 child++)
++                                for (unsigned int k = 0; k < npe1; k++)
++                                    for (unsigned int j = 0; j < npe1; j++)
++                                        for (unsigned int i = 0; i < npe1; i++) {
++                                            const unsigned int src =
++                                                m_uiE2NMapping_CG
++                                                    [(ele + child) * m_uiNpE +
++                                                     k * npe1 * npe1 +
++                                                     j * npe1 + i];
++                                            if (this->isNodeHanging(
++                                                    (ele + child), i, j, k)) {
++                                                wVec_t[(size_t)m2primeCount *
++                                                           m_uiNpE +
++                                                       k * npe1 * npe1 +
++                                                       j * npe1 + i] =
++                                                    vec[src];
++                                            } else {
++                                                const unsigned int cn =
++                                                    m_uiAllElements[(ele +
++                                                                     child)]
++                                                        .getMortonIndex();
++                                                const unsigned int iix =
++                                                    m_uiElementOrder *
++                                                        (int)(cn & 1u) +
++                                                    i;
++                                                const unsigned int jjy =
++                                                    m_uiElementOrder *
++                                                        (int)((cn & 2u) >>
++                                                              1u) +
++                                                    j;
++                                                const unsigned int kkz =
++                                                    m_uiElementOrder *
++                                                        (int)((cn & 4u) >>
++                                                              2u) +
++                                                    k;
++                                                if ((iix % 2 == 0) &&
++                                                    (jjy % 2 == 0) &&
++                                                    (kkz % 2 == 0)) {
++                                                    wVec_t[(size_t)m2primeCount *
++                                                               m_uiNpE +
++                                                           (kkz >> 1u) * npe1 *
++                                                               npe1 +
++                                                           (jjy >> 1u) * npe1 +
++                                                           (iix >> 1u)] =
++                                                        vec[src];
++                                                }
++                                            }
++                                        }
++                            ele += (NUM_CHILDREN - 1);
++                            m2primeCount += 1;
++                        } else {
++                            this->getElementNodalValues(
++                                vec,
++                                &wVec_t[(size_t)m2primeCount * m_uiNpE], ele,
++                                false, im1_t.data(), im2_t.data());
++                            m2primeCount += 1;
++                        }
++                    }
++                    for (unsigned int ele = m2LocalElemBegin;
++                         ele < m2LocalElemEnd; ele++)
++                        for (unsigned int k = 0; k < npe1; k++)
++                            for (unsigned int j = 0; j < npe1; j++)
++                                for (unsigned int i = 0; i < npe1; i++) {
++                                    if (!(pMesh->isNodeHanging(ele, i, j, k))) {
++                                        const unsigned int lookUp =
++                                            e2n_new[ele * m_uiNpE +
++                                                    k * npe1 * npe1 + j * npe1 +
++                                                    i];
++                                        if (lookUp >= m2LocalNodeBegin &&
++                                            lookUp < m2LocalNodeEnd)
++                                            out[lookUp] =
++                                                wVec_t[(size_t)(ele -
++                                                                m2LocalElemBegin) *
++                                                           m_uiNpE +
++                                                       k * npe1 * npe1 +
++                                                       j * npe1 + i];
++                                    }
++                                }
++                }
++            }
++            return;
++        }
++    }
++
+     for (unsigned int var = 0; var < dof; var++) {
+         T* vec = vecIn + (var * cg_sz_old);
+         T* out = vecOut + (var * cg_sz_new);
+--- a/include/dvec.h	2026-11-11 05:39:17.249748544 -0600
++++ b/include/dvec.h	2026-11-11 05:08:06.285087305 -0600
+@@ -426,9 +426,13 @@
+ template <typename T, typename I>
+ void DVector<T, I>::grid_transfer(ot::Mesh* m_old, const ot::Mesh* m_new,
+                                   DVector<T, I>& dvec) {
++    static const bool gt_tm_ = std::getenv("DENDRO_TIME_REMESH") != nullptr;
++    const double gt0_ = gt_tm_ ? MPI_Wtime() : 0.0;
+     ot::DVector<T, I> vec_tmp = ot::DVector<T, I>();
+     vec_tmp.create_vector(m_new, dvec.get_type(), dvec.get_loc(),
+                           dvec.get_dof(), dvec.is_ghost_allocated());
++    if (gt_tm_ && !m_new->getMPIRankGlobal())
++        printf("[igt-phases] create_vector=%.3fs\n", MPI_Wtime() - gt0_);
+ 
+     const unsigned int dof            = dvec.get_dof();
+ 
+@@ -451,8 +455,8 @@
+         MPI_Abort(dvec.get_communicator(), 0);
+     }
+ 
+-    // printf("%p\n", vec_tmp.get_vec_ptr());
+-    // printf("%p\n", dvec.get_vec_ptr());
++    if (gt_tm_ && !m_new->getMPIRankGlobal())
++        printf("[igt-phases] create+transfer=%.3fs\n", MPI_Wtime() - gt0_);
+     std::swap(vec_tmp, dvec);
+     // printf("%p\n", vec_tmp.get_vec_ptr());
+     // printf("%p\n", dvec.get_vec_ptr());
