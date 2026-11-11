@@ -1,0 +1,135 @@
+--- a/include/device.h	2026-11-11 04:15:55.741463122 -0600
++++ b/include/device.h	2026-11-11 04:15:55.752127537 -0600
+@@ -12,6 +12,11 @@
+ #include <stdio.h>
+ 
+ #include <iostream>
++#include <map>
++#include <mutex>
++#include <unordered_map>
++#include <vector>
++#include <cstdlib>
+ 
+ #include "dendro.h"
+ #include "mpi.h"
+@@ -136,6 +141,31 @@
+ namespace device {
+ class DeviceCUDA {
+    public:
++    struct PinnedPool {
++        std::mutex mtx;
++        std::map<size_t, std::vector<void*>> free_by_cap;
++        std::unordered_map<void*, size_t> live;
++        size_t cached_bytes = 0;
++        size_t max_cached   = (size_t)24 << 30;
++        bool enabled        = true;
++        PinnedPool() {
++            const char* e = std::getenv("DENDRO_PINNED_POOL");
++            if (e && e[0] == '0') enabled = false;
++            const char* g = std::getenv("DENDRO_PINNED_POOL_MAX_GB");
++            if (g) max_cached = (size_t)(atof(g) * (double)((size_t)1 << 30));
++        }
++        // round up to a x1.25 geometric bucket (>= 4 KiB)
++        size_t bucket(size_t b) const {
++            size_t c = 4096;
++            while (c < b) c = c + (c >> 2);
++            return c;
++        }
++    };
++    static PinnedPool& pinned_pool() {
++        static PinnedPool P;
++        return P;
++    }
++
+     DEVICE_FUNC static int thread_id_x() { return threadIdx.x; }
+     DEVICE_FUNC static int thread_id_y() { return threadIdx.y; }
+     DEVICE_FUNC static int thread_id_z() { return threadIdx.z; }
+@@ -222,14 +252,77 @@
+         return;
+     }
+ 
++    /**@brief: pinned host memory pool. cudaMallocHost/cudaFreeHost cost
++     * tens to hundreds of ms for large buffers and are called at every
++     * remesh; freed blocks are cached in size buckets (x1.25 steps) and
++     * reused. Cached bytes are capped (DENDRO_PINNED_POOL_MAX_GB, default 24);
++     * DENDRO_PINNED_POOL=0 disables the cache (direct cudaMallocHost).*/
++    static void* pinned_pool_alloc(size_t bytes) {
++        PinnedPool& P = pinned_pool();
++        if (!P.enabled) {
++            void* p;
++            check_error(cudaMallocHost(&p, bytes));
++            return p;
++        }
++        size_t cap = P.bucket(bytes);
++        {
++            std::lock_guard<std::mutex> lk(P.mtx);
++            auto it = P.free_by_cap.find(cap);
++            if (it != P.free_by_cap.end() && !it->second.empty()) {
++                void* p = it->second.back();
++                it->second.pop_back();
++                P.cached_bytes -= cap;
++                P.live[p] = cap;
++                return p;
++            }
++        }
++        void* p;
++        check_error(cudaMallocHost(&p, cap));
++        std::lock_guard<std::mutex> lk(P.mtx);
++        P.live[p] = cap;
++        return p;
++    }
++
++    static void pinned_pool_free(void* p) {
++        if (p == nullptr) return;
++        PinnedPool& P = pinned_pool();
++        if (!P.enabled) {
++            check_error(cudaFreeHost(p));
++            return;
++        }
++        std::lock_guard<std::mutex> lk(P.mtx);
++        auto it = P.live.find(p);
++        if (it == P.live.end()) {  // not ours
++            check_error(cudaFreeHost(p));
++            return;
++        }
++        size_t cap = it->second;
++        P.live.erase(it);
++        P.free_by_cap[cap].push_back(p);
++        P.cached_bytes += cap;
++        // evict largest cached buffers beyond the cap
++        while (P.cached_bytes > P.max_cached) {
++            auto big = P.free_by_cap.end();
++            for (auto b = P.free_by_cap.begin(); b != P.free_by_cap.end();
++                 ++b)
++                if (!b->second.empty() &&
++                    (big == P.free_by_cap.end() || b->first > big->first))
++                    big = b;
++            if (big == P.free_by_cap.end()) break;
++            void* q = big->second.back();
++            big->second.pop_back();
++            P.cached_bytes -= big->first;
++            check_error(cudaFreeHost(q));
++        }
++    }
++
+     /**@brief: allocates memory on the host (pinned mem. allocation)*/
+     template <typename T>
+     static T* host_malloc(unsigned int n) {
+ #if defined(DEBUG) || defined(_DEBUG)
+         T* data = (T*)malloc(sizeof(T) * n);
+ #else
+-        T* data;
+-        check_error(cudaMallocHost((void**)&data, sizeof(T) * n));
++        T* data = (T*)pinned_pool_alloc(sizeof(T) * (size_t)n);
+ #endif
+         return data;
+     }
+@@ -240,7 +333,7 @@
+ #if defined(DEBUG) || defined(_DEBUG)
+         free(hptr);
+ #else
+-        check_error(cudaFreeHost(hptr));
++        pinned_pool_free((void*)hptr);
+ #endif
+         return;
+     }
