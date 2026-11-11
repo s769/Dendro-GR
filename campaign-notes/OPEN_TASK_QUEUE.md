@@ -47,7 +47,7 @@ Then: fine-resolution waveform FD (needs recorded fine fiducial + 4 replays; est
 ## Storage rule
 All run output goes to `$SCRATCH` (`~/Dendro-GR-runs` is a symlink to `$SCRATCH/Dendro-GR-runs`). Home quota is ~46 GB.
 
-## INVERSION ROADMAP (added 2026-11-10; solver work finishes first, then this)
+## INVERSION ROADMAP (added 2026-11-10) -- ON HOLD: the user is deciding the inference strategy (goal: full-order-model inference or another guaranteed-high-fidelity route, NOT lower-order surrogates). Do not plan Phases C-E further until they come back; Phase B/F items remain valid prerequisites.
 Priority order: (1) non-eccentric injection-recovery, (2) real-event replication (high-mass, e.g. GW150914-like), (3) eccentricity as an inferred parameter.
 
 ### Phase A -- finish the solver side (IN PROGRESS)
@@ -77,3 +77,20 @@ Priority order: (1) non-eccentric injection-recovery, (2) real-event replication
 - F1 initial-data generator (e, mean anomaly, q, spins) -> positions/velocities (BSSN_BH1/BH2 X,V; TwoPunctures momenta); id.py is the low-eccentricity PN estimator only. Verify the V->momentum mapping.
 - F2 R_orbit parameterized + resolution check for wider orbits; F3 eccentricity estimator from BH trajectories/waveform; F4 validation vs an RIT/SXS eccentric waveform;
   F5 cost (wider start separation => longer inspiral); F6 add (e, anomaly) to the FD Jacobian / emulator.
+
+## SOLVER OPTIMIZATION PRIORITIES (current focus; forward solve + sensitivities, minimize time to solution)  -- written 2026-11-10
+Measured shares (production depth q8, nsys, GPU kernel time 18.7 s over ~300 steps, contracted CAHD):
+  main fused RHS 32% (6.1 s) + boundary RHS 6% | unzip (__unzip_cg1__2) 22% | ghost pack/unpack (__read_rb/__write_sb) 23% | CAHD 13% | zip+axpy 3%.
+  Host side: remesh ~16% of stepping (1.1 s per remesh, every 50 steps; 58% of it state-independent mesh build), startup ~57 s.
+  The cap-12 case on ONE GPU (~10k blocks) is GPU-bound: ~0.8 s/step => ~75 us per block-step.
+Candidates, ordered by (expected payoff x ease):
+ 1. Numerics knobs that change the STEP COUNT (time to solution ~ 1/CFL): CFL 0.25 -> 0.35..0.5 (RK stability + waveform accuracy test), remesh interval 50 -> 100 (-8%), KO/AMR settings. Cheap, needs a short accuracy check.
+ 2. Fuse CAHD into the main RHS kernel (the main kernel already forms the Ricci pieces): removes most of the 13%.
+ 3. Unzip + ghost exchange (45% of kernel time, memory-bound gathers over padded 13^3 blocks for 7^3 interior points, ~6.4x redundancy):
+    - larger blocks (19^3 = 2x2x2 elements merged: ~2.2x redundancy) = the old plan item 2.6 (not started),
+    - exchange only the variables whose derivatives are needed, fuse zip/unzip/ghost packing around RK stages.
+ 4. Remesh: device-resident grid transfer, avoid no-op remeshes, share mesh construction across ensemble members (<= ~9%).
+ 5. Sensitivities: with frozen-mesh replay the 2p+1 FD members are independent, so Jacobian wall time ~ fiducial + one replay if enough GPUs are available
+    => optimizing a SINGLE forward solve is the same lever as optimizing the sensitivities; strong-scaling one run over more GPUs (efficiency 0.56-0.64 at 4 GPUs, earlier
+    measurement) trades throughput for time-to-solution; a tangent-linear model would give ~one-run wall time too (decided not needed for now).
+ 6. Keep: accuracy-vs-cost study (resolution/knobs) because it sets how many blocks are needed at all.
