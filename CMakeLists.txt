@@ -73,6 +73,11 @@ option(WITH_CUDA "Build dendro with CUDA" OFF)
 
 if(WITH_CUDA)
   enable_language(CUDA)
+  # Without this the .cu translation units are compiled WITHOUT OpenMP, so every '#pragma omp' in
+  # headers instantiated from CUDA code (e.g. dendrolib's intergrid transfer) is silently inert.
+  if(NOT CMAKE_CUDA_FLAGS MATCHES "-fopenmp")
+    set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Xcompiler -fopenmp")
+  endif()
 endif()
 
 # =============================
