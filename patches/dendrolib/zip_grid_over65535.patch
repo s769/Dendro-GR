@@ -1,0 +1,56 @@
+--- a/GPU/include/mesh_gpu.cuh	2026-11-11 11:21:30.490660335 -0600
++++ b/GPU/include/mesh_gpu.cuh	2026-11-11 11:21:30.505973360 -0600
+@@ -2558,8 +2558,9 @@
+ template <typename T, DEVICE_UINT p, DEVICE_UINT PW>
+ GLOBAL_FUNC __launch_bounds__(64) void __zip_dg_enforce_c0__(
+     const MeshGPU* const dptr_mesh, const T* const dptr_in, T* const dptr_out) {
+-    const DEVICE_UINT ele_id        = GPUDevice::block_id_x();
+-    const DEVICE_UINT blk           = GPUDevice::block_id_y();
++    // grid = (#blocks, max elems per block, dof): #blocks can exceed 65535 (gridDim.y limit)
++    const DEVICE_UINT ele_id        = GPUDevice::block_id_y();
++    const DEVICE_UINT blk           = GPUDevice::block_id_x();
+     const DEVICE_UINT var           = GPUDevice::block_id_z();
+ 
+     // implies no contribution for the unzip.
+@@ -2605,8 +2606,9 @@
+ template <typename T, DEVICE_UINT p, DEVICE_UINT PW>
+ GLOBAL_FUNC __launch_bounds__(64) void __zip_dg__(
+     const MeshGPU* const dptr_mesh, const T* const dptr_in, T* const dptr_out) {
+-    const DEVICE_UINT ele_id        = GPUDevice::block_id_x();
+-    const DEVICE_UINT blk           = GPUDevice::block_id_y();
++    // grid = (#blocks, max elems per block, dof): #blocks can exceed 65535 (gridDim.y limit)
++    const DEVICE_UINT ele_id        = GPUDevice::block_id_y();
++    const DEVICE_UINT blk           = GPUDevice::block_id_x();
+     const DEVICE_UINT var           = GPUDevice::block_id_z();
+ 
+     // implies no contribution for the unzip.
+@@ -2656,8 +2658,9 @@
+ template <typename T, DEVICE_UINT p, DEVICE_UINT PW>
+ GLOBAL_FUNC __launch_bounds__(64) void __zip_cg__(
+     const MeshGPU* const dptr_mesh, const T* const dptr_in, T* const dptr_out) {
+-    const DEVICE_UINT ele_id        = GPUDevice::block_id_x();
+-    const DEVICE_UINT blk           = GPUDevice::block_id_y();
++    // grid = (#blocks, max elems per block, dof): #blocks can exceed 65535 (gridDim.y limit)
++    const DEVICE_UINT ele_id        = GPUDevice::block_id_y();
++    const DEVICE_UINT blk           = GPUDevice::block_id_x();
+     const DEVICE_UINT var           = GPUDevice::block_id_z();
+ 
+     // implies no contribution for the unzip.
+@@ -3222,7 +3225,7 @@
+ void MeshGPU::zip_dg(const ot::Mesh* const pMesh,
+                      const MeshGPU* const dptr_mesh, const T* const dptr_in,
+                      T* const dptr_out, unsigned int dof, stream s) {
+-    dim3 gb = dim3(m_zip_grid[0], m_zip_grid[1], dof);
++    dim3 gb = dim3(m_zip_grid[1], m_zip_grid[0], dof);  // (#blocks, max elems/block, dof)
+     dim3 tb = dim3(8, 8, 1);
+     // printf("Grid : {%d, %d, %d} blocks. Blocks : {%d, %d, %d} threads.\n",
+     // gb.x, gb.y, gb.z, tb.x, tb.y, tb.z);
+@@ -3237,7 +3240,7 @@
+ void MeshGPU::zip_cg(const ot::Mesh* const pMesh,
+                      const MeshGPU* const dptr_mesh, const T* const dptr_in,
+                      T* const dptr_out, unsigned int dof, stream s) {
+-    dim3 gb = dim3(m_zip_grid[0], m_zip_grid[1], dof);
++    dim3 gb = dim3(m_zip_grid[1], m_zip_grid[0], dof);  // (#blocks, max elems/block, dof)
+     dim3 tb = dim3(8, 8, 1);
+     // printf("Grid : {%d, %d, %d} blocks. Blocks : {%d, %d, %d} threads.\n",
+     // gb.x, gb.y, gb.z, tb.x, tb.y, tb.z);

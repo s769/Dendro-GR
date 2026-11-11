@@ -190,3 +190,6 @@ q=2, baseline schedule, psi4_22 r=25 shell, |z|>10% of max, T=110 (merger t~102)
 
 
 ## !! CORRECTION 2026-11-11 08:45 -- see STATE_2026-11-11.md top: the T=110 comparisons above test the junk-radiation transient (shell r=100, retarded time <= 10 M; BHs have not merged: q=1 r=3.6 at T=110), not inspiral phase accuracy. Redo with T=260 and retarded-time windows is running (p1{2,3,4}L_T260).
+
+## Root cause of the >65535-element crash (2026-11-11 11:45): zip kernel gridDim.y
+`MeshGPU::zip_cg/zip_dg` launch `dim3(m_zip_grid[0], m_zip_grid[1], dof)` with m_zip_grid[1] = blk_list.size() (= #elements for the 1-element-per-block GPU layout) on gridDim.y (hardware limit 65535) -> cudaErrorInvalidValue printed by check_last_error as "!! invalid arguments" and an abort. Three runs died at the first step after a remesh to >65535 elements (p13L 65717, p14L 66032, q4 levels (15,12) 70442); all runs below 62.4k completed. Fix (patches/dendrolib/zip_grid_over65535.patch): grid = (#blocks, max elems per block, dof), kernels read blk from block_id_x and ele_id from block_id_y. Binary built; the verification run (a mesh > 65535 elements) is pending a node. This limit affects every post-merger production run at the resolutions that matter; other y/z-limited launches (unzip grids, write_sb, ghost pack) use small y.
