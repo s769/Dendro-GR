@@ -218,6 +218,9 @@ extern double BSSN_WAVELET_TOL;
 /**@brief: wabelet tolernace for GW extration(refinement after the merger)*/
 extern double BSSN_GW_REFINE_WTOL;
 
+/**@brief: outer radius (M) of the strictest-refinement region in wavelet-tolerance function 6 (default 8; set to the apocenter-scale orbital radius for eccentric binaries)*/
+extern double BSSN_WAVELET_TOL_R_ORBIT;
+
 /**@brief load-imbalance tolerance value. */
 extern double BSSN_LOAD_IMB_TOL;
 /**@brief: Splitter fix value*/

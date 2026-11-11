@@ -468,6 +468,9 @@ void readParamJSONFile(const char* fName, MPI_Comm comm) {
     if (parFile.find("BSSN_GW_REFINE_WTOL") != parFile.end())
         bssn::BSSN_GW_REFINE_WTOL = parFile["BSSN_GW_REFINE_WTOL"];
 
+    if (parFile.find("BSSN_WAVELET_TOL_R_ORBIT") != parFile.end())
+        bssn::BSSN_WAVELET_TOL_R_ORBIT = parFile["BSSN_WAVELET_TOL_R_ORBIT"];
+
     if (parFile.find("BSSN_MINDEPTH") != parFile.end())
         bssn::BSSN_MINDEPTH = parFile["BSSN_MINDEPTH"];
 
@@ -758,6 +761,8 @@ void dumpParamFile(std::ostream& sout, int root, MPI_Comm comm) {
         sout << YLW << "\tBSSN_WAVELET_TOL :" << bssn::BSSN_WAVELET_TOL << NRM
              << std::endl;
         sout << YLW << "\tBSSN_GW_REFINE_WTOL:" << bssn::BSSN_GW_REFINE_WTOL
+             << NRM << std::endl;
+        sout << YLW << "\tBSSN_WAVELET_TOL_R_ORBIT:" << bssn::BSSN_WAVELET_TOL_R_ORBIT
              << NRM << std::endl;
         sout << YLW << "\tBSSN_WAVELET_TOL_MAX:" << bssn::BSSN_WAVELET_TOL_MAX
              << NRM << std::endl;
@@ -2555,7 +2560,7 @@ double computeWTolDCoords(double x, double y, double z, double* hx) {
         // set up constants used in this function
 
         // (max) orbital radius; use strictest refinement here
-        const double R_orbit = 8;
+        const double R_orbit = bssn::BSSN_WAVELET_TOL_R_ORBIT;
         // outermost GW extraction radius
         const double R_min   = GW::BSSN_GW_RADAII[0];
         const double R_max   = GW::BSSN_GW_RADAII[GW::BSSN_GW_NUM_RADAII - 1];

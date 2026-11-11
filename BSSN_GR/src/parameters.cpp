@@ -44,6 +44,7 @@ double BSSN_IO_OUTPUT_GAP                              = 1.0;
 unsigned int BSSN_USE_WAVELET_TOL_FUNCTION             = 0;
 double BSSN_WAVELET_TOL                                = 0.0001;
 double BSSN_GW_REFINE_WTOL                             = 1e-4;
+double BSSN_WAVELET_TOL_R_ORBIT                        = 8.0;
 double BSSN_WAVELET_TOL_MAX                            = 0.001;
 double BSSN_WAVELET_TOL_FUNCTION_R0                    = 10.0;
 double BSSN_WAVELET_TOL_FUNCTION_R1                    = 50.0;
@@ -505,6 +506,7 @@ void readParamTOMLFile(const char* fName, MPI_Comm comm) {
          bssn::BSSN_DENDRO_AMR_FAC_POST_MERGER, UseInitialValue},
         {"BSSN_INIT_GRID_ITER", bssn::BSSN_INIT_GRID_ITER, UseInitialValue},
         {"BSSN_GW_REFINE_WTOL", bssn::BSSN_GW_REFINE_WTOL, UseInitialValue},
+        {"BSSN_WAVELET_TOL_R_ORBIT", bssn::BSSN_WAVELET_TOL_R_ORBIT, UseInitialValue},
         {"BSSN_MINDEPTH", bssn::BSSN_MINDEPTH, UseInitialValue},
         {"BSSN_BH1_CONSTRAINT_R", bssn::BSSN_BH1_CONSTRAINT_R, UseInitialValue},
         {"BSSN_BH2_CONSTRAINT_R", bssn::BSSN_BH2_CONSTRAINT_R, UseInitialValue},
@@ -1193,6 +1195,7 @@ void writeParamTOMLFile(const char* fName, MPI_Comm comm) {
              bssn::BSSN_DENDRO_AMR_FAC_POST_MERGER},
             {"BSSN_INIT_GRID_ITER", bssn::BSSN_INIT_GRID_ITER},
             {"BSSN_GW_REFINE_WTOL", bssn::BSSN_GW_REFINE_WTOL},
+            {"BSSN_WAVELET_TOL_R_ORBIT", bssn::BSSN_WAVELET_TOL_R_ORBIT},
             {"BSSN_MINDEPTH", bssn::BSSN_MINDEPTH},
             {"BSSN_BH1_CONSTRAINT_R", bssn::BSSN_BH1_CONSTRAINT_R},
             {"BSSN_BH2_CONSTRAINT_R", bssn::BSSN_BH2_CONSTRAINT_R},
