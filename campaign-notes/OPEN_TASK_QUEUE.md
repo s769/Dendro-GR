@@ -46,3 +46,34 @@ Then: fine-resolution waveform FD (needs recorded fine fiducial + 4 replays; est
 
 ## Storage rule
 All run output goes to `$SCRATCH` (`~/Dendro-GR-runs` is a symlink to `$SCRATCH/Dendro-GR-runs`). Home quota is ~46 GB.
+
+## INVERSION ROADMAP (added 2026-11-10; solver work finishes first, then this)
+Priority order: (1) non-eccentric injection-recovery, (2) real-event replication (high-mass, e.g. GW150914-like), (3) eccentricity as an inferred parameter.
+
+### Phase A -- finish the solver side (IN PROGRESS)
+- A1 resolution/cost study batch 3 (cap-13 ref, cap-14 to T=80, GW_REFINE_WTOL and AMR_FAC variants; see RESOLUTION_STUDY.md) -> choose the cheapest config that meets an error target
+  (target needs the user's SNR/noise assumption: mismatch ~ 1/(2 SNR^2)).
+- A2 junk-radiation / observing window decision; multi-radius extrapolation of psi4; check starting separation vs cost (q1: inspiral ~190 M).
+- A3 FD Jacobian at the chosen config for the parameters actually inferred first: mass ratio, then aligned spins; extend to merger+ringdown window; choose eps; re-record policy for the frozen mesh.
+- A4 RIT/SXS catalog comparison of one waveform (needs a catalog file from the user) -> real model-error number.
+- A5 engineering: checkpoint/restart for long runs, unzip+ghost kernels (~34% of GPU time), remesh interval, parameterize R_orbit (currently hard-coded 8 in tolerance function 6).
+
+### Phase B -- NR waveform product (psi4 -> h)
+- B1 pipeline psi4_lm(t; r) -> extrapolate across radii -> h_lm(t) (fixed-frequency integration), junk cut, taper, alignment; test vs resolution.
+- Scaling facts to exploit: total mass M and all extrinsic parameters (distance, inclination, polarization, sky position, time, phase) are ANALYTIC for a given dimensionless NR waveform; only the intrinsic dimensionless
+  parameters need simulations: q (+ spins, + eccentricity/anomaly later).  Non-eccentric aligned-spin case: p = 1..3 intrinsic parameters, so a Jacobian by central FD is only 3..7 runs.
+
+### Phase C -- waveform model for the inference code (bilby-style)
+- Plug into bilby as a custom time-domain (or frequency-domain) source model that returns h_plus/h_cross from h_lm and the analytic extrinsics (bilby supports custom WaveformGenerator source models; verify the current API:
+  its own time-domain example was reported broken (issue 290) and time-domain models can mismatch the frequency array/f_max (LIGO DCC note G2200203) -- test both).
+- Direct NR-in-loop per likelihood call is impossible (hours per run), so the model used inside a sampler must be one of: (i) local linearized model h(theta0)+J dtheta from the FD Jacobian (Fisher/Laplace/Gauss-Newton,
+  valid near the injection), (ii) an emulator trained on an ensemble of NR runs over a parameter box (surrogate-style), (iii) ensemble methods with NR in the loop at a limited number of evaluations.
+### Phase D -- injection-recovery (first inversion target)
+- D1 zero-noise injection, same model: recovers truth; compare Fisher widths with posterior widths.
+- D2 zero-noise injection from a HIGHER-resolution NR run recovered with the lower-resolution model: the bias is the NR error budget.
+- D3 Gaussian-noise injection (design PSD, SNR ~20-30), repeated for a P-P plot (calibration).
+### Phase E -- real event replication (after D): high-mass event (few in-band cycles fit NR length), GWOSC data, PSD estimation, compare with LVK posterior.
+### Phase F -- eccentricity as an inferred parameter (after the non-eccentric inversion works)
+- F1 initial-data generator (e, mean anomaly, q, spins) -> positions/velocities (BSSN_BH1/BH2 X,V; TwoPunctures momenta); id.py is the low-eccentricity PN estimator only. Verify the V->momentum mapping.
+- F2 R_orbit parameterized + resolution check for wider orbits; F3 eccentricity estimator from BH trajectories/waveform; F4 validation vs an RIT/SXS eccentric waveform;
+  F5 cost (wider start separation => longer inspiral); F6 add (e, anomaly) to the FD Jacobian / emulator.
