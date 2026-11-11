@@ -170,3 +170,6 @@ Remaining per-remesh host cost (balance+partition, Mesh ctor, SendRecvCompute ~0
 | CFL 0.25, remesh 50, new binary | 634 (-19%) | 0.0073 / 0.0049 (waveform identical to p13u: max|dz| 1e-16 at |z|~3e-5) |
 | CFL 0.4, remesh 80, new binary | 408 (-48%) | 0.0032 / 0.0031 |
 => one cap-13 q1 forward solve to T=110 is ~7 min of GPU stepping (down from 13 min), 5-6 min with the replay-based FD members. Software-only changes are bit-for-bit (roundoff) neutral; the CFL/remesh change is a measured, accuracy-neutral (q1) schedule change that still needs the q != 1 inspiral check before becoming a default.
+
+## q=2 check of the CFL 0.4 / remesh 80 schedule (cap 13, T=110; run_q_cfl.sh) -- 2026-11-11
+ETS 1087 s (CFL 0.25, rm50) -> 690 s (CFL 0.4, rm80), -37%; but the two waveforms differ by max|dphase| 0.026 rad, max|dz|/max|z| 0.025 (r=25 shell, |z|>10% of max; q=2 merger at t~102) -- 3x-8x larger than at q=1 (0.003). Cap 13 is itself less converged for q=2 (smaller BH), so this difference may just be cap-13 discretization noise, or a genuine schedule effect: NOT validated. Policy: keep CFL 0.25 / remesh 50 as the default for every q != 1 until a per-q convergence run (cap 14 reference, below) shows the schedule change is below the cap-13 error. (q=1: validated, 0.0032 rad.)
