@@ -133,3 +133,13 @@ Reference cap 14 (p14u). psi4_22 r=25, t in 20..110. ETS = stepping wall on one 
 | CFL 0.25, remesh 100 | 680 (-13%) | 0.0072 | 0.0062 |
 - CFL 0.5 stable through merger+ringdown and no less accurate than baseline; wall time now scales with steps (the pinned runs hid this). CFL 0.35 is a worse outlier (0.038 rad): shows adaptation/mesh-timing scatter of a few 1e-2 rad between nominally equivalent configs -- must be quantified before trusting any step-count knob (more samples: CFL 0.4/0.6/0.7 running).
 - Remesh interval 100 steps at cap 13 costs nothing in accuracy (unlike cap 12) and saves 13%.
+- More cap-13 variants (same reference p14u; error measured only where |z_ref|>10% of max, since the interpolated phase at the inspiral null t~47 (|z|~1e-8) is meaningless -- the "0.038 rad" CFL 0.35 outlier above was that artifact):
+| config | ETS [s] | max|dphase| (masked) | max|dz|/max|z| |
+| CFL 0.25 rm50 (baseline) | 784 | 0.0073 | 0.0049 |
+| CFL 0.4 rm36 (time-scaled) | 563 (-28%) | 0.0032 | 0.0031 |
+| CFL 0.5 rm25 (time-scaled) | 495 (-37%) | 0.0022 | 0.0023 |
+| CFL 0.5 rm50 | 415 (-47%) | 0.0023 | 0.0023 |
+| CFL 0.4 rm80 | 464 (-41%) | 0.0032 | 0.0031 |
+| CFL 0.6 rm20 | 454 (-42%) | 0.0100 | 0.0059 |
+| CFL 0.7 | crashed (unstable) | - | - |
+Recommendation (q1 only so far): CFL 0.4 + remesh 80 steps (-41%, error below baseline) as the new production default; CFL 0.5 + remesh 50 is -47% but only 1.2x from the instability edge (0.7 fails, 0.6 degrades). Before making it the default for other q/spins: repeat for q=4 (and one spinning case), since the shift/advection CFL margin depends on the configuration. Note the FD harness is unaffected (members replay the fiducial's mesh but use the same CFL; the fiducial and members must share the CFL).

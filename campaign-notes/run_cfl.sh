@@ -6,9 +6,9 @@ CAP=${CAP:-12}; TEND=${TEND:-70}; CFLS="${CFLS:-0.25 0.35 0.5}"; GPU0=${GPU0:-0}
 OUT=$HOME/Dendro-GR-runs/resstudy2; BIN=$DENDRO_BUILD/BSSN_GR/bssnSolverCUDA
 TPB=$OUT/tp/tp_q001_tpid_sol.bin; i=0
 for c in $CFLS; do
-  d=$OUT/cfl${c}c${CAP}_T${TEND}; rm -rf $d; mkdir -p $d/{aeh,bah,cp,dat,vtu}; cp $HOME/Dendro-GR/BSSN_GR/pars/q1.par.toml $d/local.par.toml; ln -sfn $TPB $d/tp_q001_tpid_sol.bin
+  d=$OUT/cfl${c}${TAG:-}c${CAP}_T${TEND}; rm -rf $d; mkdir -p $d/{aeh,bah,cp,dat,vtu}; cp $HOME/Dendro-GR/BSSN_GR/pars/q1.par.toml $d/local.par.toml; ln -sfn $TPB $d/tp_q001_tpid_sol.bin
   gwf=$(python3 -c "print(max(1,round(8*2**($CAP-11)*0.25/$c)))")
-  rmf=$(python3 -c "print(max(1,round(50*0.25/$c)))")
+  rmf=${RMF_OVR:-$(python3 -c "print(max(1,round(50*0.25/$c)))")}
   python3 - <<PY
 import re
 from pathlib import Path
