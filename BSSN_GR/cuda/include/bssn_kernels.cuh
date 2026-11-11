@@ -436,7 +436,7 @@ DEVICE_FUNC void eval_rhs(DEVICE_REAL* const dptr_Fu,
                           const BlockGPU3D* blk,
                           BSSN_EVAR_DERIVS* const deriv_evars,
                           size_t szpdof_uz) {
-    const DEVICE_UINT sz_per_dof  = szpdof_uz;
+    const size_t sz_per_dof  = szpdof_uz;
     const DEVICE_UINT Z_ID        = GPUDevice::block_id_x();
     const DEVICE_UINT si          = GPUDevice::thread_id_x() + pw;
     const DEVICE_UINT sj          = GPUDevice::thread_id_y() + pw;
@@ -584,7 +584,7 @@ GLOBAL_FUNC __launch_bounds__(256) void bssnrhs(
     const DEVICE_UINT blk_stride  = GPUDevice::grid_dim_x();
     const DEVICE_UINT Z_ID        = GPUDevice::block_id_x();
     const DEVICE_UINT block_begin = Z_ID;
-    const DEVICE_UINT sz_per_dof  = szpdof_uz;
+    const size_t sz_per_dof  = szpdof_uz;
 
     SHARED_MEM DEVICE_REAL su[nx * nx * nx];
     BSSN_EVAR_DERIVS* const deriv_evars = dptr_deriv_evars;
@@ -2162,7 +2162,7 @@ GLOBAL_FUNC __launch_bounds__(343, BSSN_STOCK_MINB) void eval_rhs3(
     DEVICE_REAL* Du  = shared_mem + pencil_sz * pencil_sz * pencil_sz;
     DEVICE_REAL* DDu = shared_mem + 2 * pencil_sz * pencil_sz * pencil_sz;
 
-    const DEVICE_UINT sz_per_dof             = szpdof_uz;
+    const size_t sz_per_dof             = szpdof_uz;
     const DEVICE_UINT lambda[4]              = {1, 1, 1, 1};
     const DEVICE_REAL lambda_f[2]            = {1.0, 0.0};
     const DEVICE_INT Z_ID                    = GPUDevice::block_id_x();
@@ -2422,7 +2422,7 @@ GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_pt(
     // at compile time rather than silently. gauge6_point.cpp does not use them.
     (void)pencil_sz;
 
-    const DEVICE_UINT sz_per_dof             = szpdof_uz;
+    const size_t sz_per_dof             = szpdof_uz;
     const DEVICE_UINT lambda[4]              = {1, 1, 1, 1};
     const DEVICE_REAL lambda_f[2]            = {1.0, 0.0};
     const DEVICE_INT Z_ID                    = GPUDevice::block_id_x();
@@ -2570,7 +2570,7 @@ GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_pt_gmem(
     DEVICE_REAL ko_sigma) {
     (void)pencil_sz;
     (void)nblocks;
-    const DEVICE_UINT sz_per_dof             = szpdof_uz;
+    const size_t sz_per_dof             = szpdof_uz;
     const DEVICE_UINT lambda[4]              = {1, 1, 1, 1};
     const DEVICE_REAL lambda_f[2]            = {1.0, 0.0};
     const DEVICE_INT Z_ID                    = GPUDevice::block_id_x();
@@ -2713,7 +2713,7 @@ GLOBAL_FUNC __launch_bounds__(343, 1) void eval_rhs3_pt_f32su(
     (void)pencil_sz;
     (void)nblocks;
 
-    const DEVICE_UINT sz_per_dof             = szpdof_uz;
+    const size_t sz_per_dof             = szpdof_uz;
     const DEVICE_UINT lambda[4]              = {1, 1, 1, 1};
     const DEVICE_REAL lambda_f[2]            = {1.0, 0.0};
     const DEVICE_INT Z_ID                    = GPUDevice::block_id_x();
@@ -2862,7 +2862,7 @@ GLOBAL_FUNC __launch_bounds__(343, 1) void eval_rhs3_pt_async(
     (void)pencil_sz;
     (void)nblocks;
 
-    const DEVICE_UINT sz_per_dof             = szpdof_uz;
+    const size_t sz_per_dof             = szpdof_uz;
     const DEVICE_UINT lambda[4]              = {1, 1, 1, 1};
     const DEVICE_REAL lambda_f[2]            = {1.0, 0.0};
     const DEVICE_INT Z_ID                    = GPUDevice::block_id_x();
@@ -3031,7 +3031,7 @@ GLOBAL_FUNC __launch_bounds__(343, 1) void eval_rhs3_pt_async_defer(
     (void)pencil_sz;
     (void)nblocks;
 
-    const DEVICE_UINT sz_per_dof             = szpdof_uz;
+    const size_t sz_per_dof             = szpdof_uz;
     const DEVICE_UINT lambda[4]              = {1, 1, 1, 1};
     const DEVICE_REAL lambda_f[2]            = {1.0, 0.0};
     const DEVICE_INT Z_ID                    = GPUDevice::block_id_x();
@@ -3197,7 +3197,7 @@ GLOBAL_FUNC __launch_bounds__(343, 1) void eval_rhs3_pt_async_cse(
     (void)pencil_sz;
     (void)nblocks;
 
-    const DEVICE_UINT sz_per_dof             = szpdof_uz;
+    const size_t sz_per_dof             = szpdof_uz;
     const DEVICE_UINT lambda[4]              = {1, 1, 1, 1};
     const DEVICE_REAL lambda_f[2]            = {1.0, 0.0};
     const DEVICE_INT Z_ID                    = GPUDevice::block_id_x();
@@ -3363,7 +3363,7 @@ GLOBAL_FUNC __launch_bounds__(343, 1) void eval_rhs3_pt_async_whilehot(
     (void)pencil_sz;
     (void)nblocks;
 
-    const DEVICE_UINT sz_per_dof             = szpdof_uz;
+    const size_t sz_per_dof             = szpdof_uz;
     const DEVICE_UINT lambda[4]              = {1, 1, 1, 1};
     const DEVICE_REAL lambda_f[2]            = {1.0, 0.0};
     const DEVICE_INT Z_ID                    = GPUDevice::block_id_x();
@@ -3526,7 +3526,7 @@ GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_pt_db(
     DEVICE_REAL* su = shared_mem;  // su0; su1 = su + nx^3 (see gauge6_point_db)
     (void)pencil_sz;
 
-    const DEVICE_UINT sz_per_dof             = szpdof_uz;
+    const size_t sz_per_dof             = szpdof_uz;
     const DEVICE_UINT lambda[4]              = {1, 1, 1, 1};
     const DEVICE_REAL lambda_f[2]            = {1.0, 0.0};
     const DEVICE_INT Z_ID                    = GPUDevice::block_id_x();
@@ -3677,7 +3677,7 @@ GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_pt_kof32(
     // at compile time rather than silently. gauge6_point.cpp does not use them.
     (void)pencil_sz;
 
-    const DEVICE_UINT sz_per_dof             = szpdof_uz;
+    const size_t sz_per_dof             = szpdof_uz;
     const DEVICE_UINT lambda[4]              = {1, 1, 1, 1};
     const DEVICE_REAL lambda_f[2]            = {1.0, 0.0};
     const DEVICE_INT Z_ID                    = GPUDevice::block_id_x();
@@ -3836,7 +3836,7 @@ GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_f32(
     float* Du  = su + n3;
     float* DDu = Du + n3;
 
-    const DEVICE_UINT sz_per_dof             = szpdof_uz;
+    const size_t sz_per_dof             = szpdof_uz;
     const DEVICE_UINT lambda[4]              = {1, 1, 1, 1};
     const DEVICE_REAL lambda_f[2]            = {1.0, 0.0};
     const DEVICE_INT Z_ID                    = GPUDevice::block_id_x();
@@ -4015,7 +4015,7 @@ GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs3_f32c(
     float* Du  = su + n3;
     float* DDu = Du + n3;
 
-    const DEVICE_UINT sz_per_dof             = szpdof_uz;
+    const size_t sz_per_dof             = szpdof_uz;
     const DEVICE_UINT lambda[4]              = {1, 1, 1, 1};
     const DEVICE_REAL lambda_f[2]            = {1.0, 0.0};
     const DEVICE_INT Z_ID                    = GPUDevice::block_id_x();
@@ -4894,7 +4894,7 @@ GLOBAL_FUNC __launch_bounds__(343, 3) void eval_rhs4(
     __shared__ DEVICE_REAL su[pencil_sz * pencil_sz * pencil_sz];
     __shared__ DEVICE_REAL Du[pencil_sz * pencil_sz * pencil_sz];
 
-    const DEVICE_UINT sz_per_dof             = szpdof_uz;
+    const size_t sz_per_dof             = szpdof_uz;
     const DEVICE_UINT lambda[4]              = {1, 1, 1, 1};
     const DEVICE_REAL lambda_f[2]            = {1.0, 0.0};
     const DEVICE_INT Z_ID                    = GPUDevice::block_id_x();

@@ -2,7 +2,7 @@
 const DEVICE_UINT BLK_ID            = GPUDevice::block_id_z();
 const DEVICE_UINT BLK_SZ            = (blk[BLK_ID].m_aligned_sz[0]) * (blk[BLK_ID].m_aligned_sz[1]) * (blk[BLK_ID].m_aligned_sz[2]); 
 const DEVICE_UINT offset            = blk[BLK_ID].m_offset; 
-const DEVICE_UINT sz_per_dof        = szpdof_uz;
+const size_t sz_per_dof        = szpdof_uz;
 
 DEVICE_REAL * const a_rhs    = &Fu[bssn::VAR::U_ALPHA * sz_per_dof + offset];
 DEVICE_REAL * const chi_rhs  = &Fu[bssn::VAR::U_CHI * sz_per_dof + offset];
