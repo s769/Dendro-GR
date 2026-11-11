@@ -194,6 +194,8 @@ if(WITH_CUDA)
     # Force Relocatable Device Code so these link correctly to dendro5's constant memory
     set_target_properties(${TARGET_NAME} PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
     target_include_directories(${TARGET_NAME} PRIVATE ${BSSN_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/cuda/include)
+    # 64-bit DVector index (see dendrolib ODE/include/ts.h); the GPU context uses unsigned long indices
+    target_compile_definitions(${TARGET_NAME} PRIVATE DENDRO_DVEC_INDEX_64)
     target_link_libraries(${TARGET_NAME} PRIVATE
         bssn_common dendro5 MPI::MPI_CXX GSL::gsl toml11::toml11 m dendro_git_version_and_date)
   endmacro()

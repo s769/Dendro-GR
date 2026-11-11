@@ -1,0 +1,259 @@
+--- a/GPU/include/mesh_gpu.cuh
++++ b/GPU/include/mesh_gpu.cuh
+@@ -585,7 +585,7 @@
+         const DEVICE_UINT tz       = GPUDevice::thread_id_z();
+ 
+         const DEVICE_UINT porder   = dptr_mesh->m_ele_order;
+-        const DEVICE_UINT unzip_sz = dptr_mesh->m_oct_unzip_sz;
++        const size_t unzip_sz = dptr_mesh->m_oct_unzip_sz;
+         const DEVICE_UINT dg_sz    = dptr_mesh->m_oct_local_sz;
+         const DEVICE_UINT nx       = p + 1;
+         const DEVICE_UINT nPe      = nx * nx * nx;
+@@ -822,7 +822,7 @@
+ 
+     const DEVICE_UINT ele    = dptr_mesh->m_blk_list[blk].m_elem_begin + ele_id;
+     const DEVICE_UINT porder = dptr_mesh->m_ele_order;
+-    const DEVICE_UINT unzip_sz    = dptr_mesh->m_oct_unzip_sz;
++    const size_t unzip_sz    = dptr_mesh->m_oct_unzip_sz;
+     const DEVICE_UINT dg_sz       = dptr_mesh->m_oct_local_sz;
+ 
+     const DEVICE_UINT lx          = dptr_mesh->m_blk_list[blk].m_aligned_sz[0];
+@@ -865,7 +865,7 @@
+         const DEVICE_UINT ty       = GPUDevice::thread_id_y();
+ 
+         const DEVICE_UINT porder   = dptr_mesh->m_ele_order;
+-        const DEVICE_UINT unzip_sz = dptr_mesh->m_oct_unzip_sz;
++        const size_t unzip_sz = dptr_mesh->m_oct_unzip_sz;
+         const DEVICE_UINT dg_sz    = dptr_mesh->m_oct_local_sz;
+         const DEVICE_UINT nx       = p + 1;
+         const DEVICE_UINT nPe      = nx * nx * nx;
+@@ -1221,8 +1221,8 @@
+         const DEVICE_UINT ty       = GPUDevice::thread_id_y();
+ 
+         const DEVICE_UINT porder   = dptr_mesh->m_ele_order;
+-        const DEVICE_UINT unzip_sz = dptr_mesh->m_oct_unzip_sz;
+-        const DEVICE_UINT cg_sz    = dptr_mesh->m_oct_shared_sz;
++        const size_t unzip_sz = dptr_mesh->m_oct_unzip_sz;
++        const size_t cg_sz    = dptr_mesh->m_oct_shared_sz;
+         const DEVICE_UINT nx       = p + 1;
+         const DEVICE_UINT nPe      = nx * nx * nx;
+ 
+@@ -1606,8 +1606,8 @@
+     const DEVICE_UINT ty       = GPUDevice::thread_id_y();
+ 
+     const DEVICE_UINT porder   = dptr_mesh->m_ele_order;
+-    const DEVICE_UINT unzip_sz = dptr_mesh->m_oct_unzip_sz;
+-    const DEVICE_UINT cg_sz    = dptr_mesh->m_oct_shared_sz;
++    const size_t unzip_sz = dptr_mesh->m_oct_unzip_sz;
++    const size_t cg_sz    = dptr_mesh->m_oct_shared_sz;
+     const DEVICE_UINT nx       = p + 1;
+     const DEVICE_UINT nPe      = nx * nx * nx;
+ 
+@@ -1953,8 +1953,8 @@
+     const DEVICE_UINT ty       = GPUDevice::thread_id_y();
+ 
+     const DEVICE_UINT porder   = dptr_mesh->m_ele_order;
+-    const DEVICE_UINT unzip_sz = dptr_mesh->m_oct_unzip_sz;
+-    const DEVICE_UINT cg_sz    = dptr_mesh->m_oct_shared_sz;
++    const size_t unzip_sz = dptr_mesh->m_oct_unzip_sz;
++    const size_t cg_sz    = dptr_mesh->m_oct_shared_sz;
+     const DEVICE_UINT nx       = p + 1;
+     const DEVICE_UINT nPe      = nx * nx * nx;
+ 
+@@ -2305,7 +2305,7 @@
+         // const DEVICE_UINT ty     = GPUDevice::thread_id_y();
+ 
+         const DEVICE_UINT porder   = dptr_mesh->m_ele_order;
+-        const DEVICE_UINT unzip_sz = dptr_mesh->m_oct_unzip_sz;
++        const size_t unzip_sz = dptr_mesh->m_oct_unzip_sz;
+         const DEVICE_UINT dg_sz    = dptr_mesh->m_oct_local_sz;
+         const DEVICE_UINT nx       = p + 1;
+         const DEVICE_UINT nPe      = nx * nx * nx;
+@@ -2577,7 +2577,7 @@
+         const DEVICE_UINT ele =
+             dptr_mesh->m_blk_list[blk].m_elem_begin + ele_id;
+         const DEVICE_UINT porder   = dptr_mesh->m_ele_order;
+-        const DEVICE_UINT unzip_sz = dptr_mesh->m_oct_unzip_sz;
++        const size_t unzip_sz = dptr_mesh->m_oct_unzip_sz;
+         const DEVICE_UINT dg_sz    = dptr_mesh->m_oct_local_sz;
+         const DEVICE_UINT nPe      = nx * nx * nx;
+ 
+@@ -2624,7 +2624,7 @@
+         const DEVICE_UINT ele =
+             dptr_mesh->m_blk_list[blk].m_elem_begin + ele_id;
+         const DEVICE_UINT porder   = dptr_mesh->m_ele_order;
+-        const DEVICE_UINT unzip_sz = dptr_mesh->m_oct_unzip_sz;
++        const size_t unzip_sz = dptr_mesh->m_oct_unzip_sz;
+         const DEVICE_UINT dg_sz    = dptr_mesh->m_oct_local_sz;
+         const DEVICE_UINT nPe      = nx * nx * nx;
+ 
+@@ -2676,8 +2676,8 @@
+         const DEVICE_UINT ele =
+             dptr_mesh->m_blk_list[blk].m_elem_begin + ele_id;
+         const DEVICE_UINT porder   = dptr_mesh->m_ele_order;
+-        const DEVICE_UINT unzip_sz = dptr_mesh->m_oct_unzip_sz;
+-        const DEVICE_UINT cg_sz    = dptr_mesh->m_oct_shared_sz;
++        const size_t unzip_sz = dptr_mesh->m_oct_unzip_sz;
++        const size_t cg_sz    = dptr_mesh->m_oct_shared_sz;
+         const DEVICE_UINT nPe      = nx * nx * nx;
+ 
+         const DEVICE_UINT lx       = dptr_mesh->m_blk_list[blk].m_aligned_sz[0];
+@@ -2790,7 +2790,7 @@
+ 
+     const DEVICE_UINT sf      = dptr_mesh->m_cg_send_f[proc_id];
+     const DEVICE_UINT sc      = dptr_mesh->m_cg_send_c[proc_id];
+-    const DEVICE_UINT cg_sz   = dptr_mesh->m_oct_shared_sz;
++    const size_t cg_sz   = dptr_mesh->m_oct_shared_sz;
+ 
+     const DEVICE_UINT stride  = GPUDevice::block_dim_x();
+     const DEVICE_UINT t_id =
+@@ -2814,7 +2814,7 @@
+     const DEVICE_UINT dof     = GPUDevice::grid_dim_z();
+     const DEVICE_UINT sf      = dptr_mesh->m_cg_send_f[proc_id];
+     const DEVICE_UINT sc      = dptr_mesh->m_cg_send_c[proc_id];
+-    const DEVICE_UINT cg_sz   = dptr_mesh->m_oct_shared_sz;
++    const size_t cg_sz   = dptr_mesh->m_oct_shared_sz;
+     const DEVICE_UINT stride  = GPUDevice::block_dim_x();
+     const DEVICE_UINT t_id =
+         GPUDevice::thread_id_x() + GPUDevice::block_id_x() * stride;
+@@ -2837,7 +2837,7 @@
+     const DEVICE_UINT dof     = GPUDevice::grid_dim_z();
+     const DEVICE_UINT rf      = dptr_mesh->m_cg_recv_f[proc_id];
+     const DEVICE_UINT rc      = dptr_mesh->m_cg_recv_c[proc_id];
+-    const DEVICE_UINT cg_sz   = dptr_mesh->m_oct_shared_sz;
++    const size_t cg_sz   = dptr_mesh->m_oct_shared_sz;
+     const DEVICE_UINT stride  = GPUDevice::block_dim_x();
+     const DEVICE_UINT t_id =
+         GPUDevice::thread_id_x() + GPUDevice::block_id_x() * stride;
+@@ -2862,7 +2862,7 @@
+ 
+     const DEVICE_UINT rf      = dptr_mesh->m_cg_recv_f[proc_id];
+     const DEVICE_UINT rc      = dptr_mesh->m_cg_recv_c[proc_id];
+-    const DEVICE_UINT cg_sz   = dptr_mesh->m_oct_shared_sz;
++    const size_t cg_sz   = dptr_mesh->m_oct_shared_sz;
+ 
+     const DEVICE_UINT stride  = GPUDevice::block_dim_x();
+     const DEVICE_UINT t_id =
+--- a/include/device.h
++++ b/include/device.h
+@@ -54,7 +54,7 @@
+ 
+     /**@brief: allocates memory on the device*/
+     template <typename T>
+-    static T* device_malloc(unsigned int n) {
++    static T* device_malloc(size_t n) {
+         return LDevice::template device_malloc<T>(n);
+     }
+ 
+@@ -65,7 +65,7 @@
+     }
+ 
+     template <typename T>
+-    static T* host_malloc(unsigned int n) {
++    static T* host_malloc(size_t n) {
+         return LDevice::template host_malloc<T>(n);
+     }
+ 
+@@ -77,20 +77,20 @@
+     /**@brief: host to device memory transfer*/
+     template <typename T>
+     static void host_to_device(const T* const hptr, T* const dptr,
+-                               unsigned int n) {
++                               size_t n) {
+         return LDevice::template host_to_device<T>(hptr, dptr, n);
+     }
+ 
+     /**@brief: device to host memory transfer*/
+     template <typename T>
+     static void device_to_host(T* const hptr, const T* const dptr,
+-                               unsigned int n) {
++                               size_t n) {
+         return LDevice::template device_to_host<T>(hptr, dptr, n);
+     }
+ 
+     template <typename T, typename device_stream>
+     static void host_to_device_async(const T* const hptr, T* const dptr,
+-                                     unsigned int n,
++                                     size_t n,
+                                      device_stream s = (device_stream)0) {
+         return LDevice::template host_to_device_async<T, device_stream>(
+             hptr, dptr, n, s);
+@@ -98,7 +98,7 @@
+ 
+     template <typename T, typename device_stream>
+     static void device_to_host_async(T* const hptr, const T* const dptr,
+-                                     unsigned int n,
++                                     size_t n,
+                                      device_stream s = (device_stream)0) {
+         return LDevice::template device_to_host_async<T, device_stream>(
+             hptr, dptr, n, s);
+@@ -221,7 +221,7 @@
+ 
+     /**@brief: allocates memory on the device*/
+     template <typename T>
+-    static T* device_malloc(unsigned int n) {
++    static T* device_malloc(size_t n) {
+         T* data;
+         check_error(cudaMalloc((void**)&data, sizeof(T) * n));
+         return data;
+@@ -237,7 +237,7 @@
+     /**@brief: host to device memory transfer*/
+     template <typename T>
+     static void host_to_device(const T* const hptr, T* const dptr,
+-                               unsigned int n) {
++                               size_t n) {
+         check_error(
+             cudaMemcpy(dptr, hptr, sizeof(T) * n, cudaMemcpyHostToDevice));
+         return;
+@@ -246,7 +246,7 @@
+     /**@brief: device to host memory transfer*/
+     template <typename T>
+     static void device_to_host(T* const hptr, const T* const dptr,
+-                               unsigned int n) {
++                               size_t n) {
+         check_error(
+             cudaMemcpy(hptr, dptr, sizeof(T) * n, cudaMemcpyDeviceToHost));
+         return;
+@@ -318,7 +318,7 @@
+ 
+     /**@brief: allocates memory on the host (pinned mem. allocation)*/
+     template <typename T>
+-    static T* host_malloc(unsigned int n) {
++    static T* host_malloc(size_t n) {
+ #if defined(DEBUG) || defined(_DEBUG)
+         T* data = (T*)malloc(sizeof(T) * n);
+ #else
+@@ -340,7 +340,7 @@
+ 
+     template <typename T, typename device_stream>
+     static void host_to_device_async(const T* const hptr, T* const dptr,
+-                                     unsigned int n,
++                                     size_t n,
+                                      device_stream s = (device_stream)0) {
+         check_error(cudaMemcpyAsync(dptr, hptr, sizeof(T) * n,
+                                     cudaMemcpyHostToDevice, s));
+@@ -349,7 +349,7 @@
+ 
+     template <typename T, typename device_stream>
+     static void device_to_host_async(T* const hptr, const T* const dptr,
+-                                     unsigned int n,
++                                     size_t n,
+                                      device_stream s = (device_stream)0) {
+         check_error(cudaMemcpyAsync(hptr, dptr, sizeof(T) * n,
+                                     cudaMemcpyDeviceToHost, s));
+--- a/ODE/include/ts.h
++++ b/ODE/include/ts.h
+@@ -32,7 +32,13 @@
+     RKF45               = 8,
+     RK45_DORMAND_PRINCE = 12
+ };
++// DENDRO_DVEC_INDEX_64: 64-bit DVector index type (GPU solver: 24 vars x padded unzip points exceeds 2^32 entries
++// above ~81k elements per rank). Must match the Ctx's DVec typedef; default stays 32-bit for the CPU solvers.
++#ifdef DENDRO_DVEC_INDEX_64
++typedef ot::DVector<DendroScalar, unsigned long> DVec;
++#else
+ typedef ot::DVector<DendroScalar, unsigned int> DVec;
++#endif
+ 
+ /**@brief data type to store the time stepper level. */
+ typedef unsigned int TS_LEV;
