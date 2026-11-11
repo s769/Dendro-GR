@@ -87,3 +87,6 @@ Relative mismatch |X(1e-3)-X(3e-4)|/|X(3e-4)| for first derivative J1, H11, mixe
 ## Cap-15 reference (2026-11-11, p15v, T=110, 8841 s wall on one GPU, CPU binding fixed)
 psi4_22 (r=25 shell, |z|>10% of max): cap 14 vs cap 15: max|dphase| 1e-4 rad, max|dz|/max|z| 1e-4 -> cap 14 is converged to ~1e-4 rad; cap 13 vs cap 15: 7.2e-3 rad / 4.8e-3 (same as vs cap 14), cap 12: 0.43 rad. The phase/amplitude error therefore drops ~60x from cap 13 to 14 and ~70x from 14 to 15 (cap 12 -> 13 ~60x): clean convergence once cap >= 13 (error ~ 10^(-1.8 per level)). Costs (ETS, 1 GPU, T=110): cap 13 784 s, cap 14 1863 s, cap 15 8606 s; with CFL 0.5/rm50 cap 13 is ~415 s at 2e-3 rad.
 Decision: production runs at cap 13 (error ~0.007 rad, i.e. ~4x below the 0.03 rad dephasing allowed at SNR~30); use cap 14 as the verification run for any posterior mode that matters (error 1e-4 rad).
+
+
+## !! CORRECTION 2026-11-11 08:45 -- see STATE_2026-11-11.md top: the T=110 comparisons above test the junk-radiation transient (shell r=100, retarded time <= 10 M; BHs have not merged: q=1 r=3.6 at T=110), not inspiral phase accuracy. Redo with T=260 and retarded-time windows is running (p1{2,3,4}L_T260).
