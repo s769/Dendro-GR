@@ -37,3 +37,21 @@ Findings:
 
 ## Batch 3 (queued: whichever of the 5h/2h allocations starts first; watch_resstudy3.sh): p13 to T=110, p14 to T=80 (convergence rate on the shared window),
 ## g3c12 / g5c12 = cap 12 with BSSN_GW_REFINE_WTOL 1e-3 / 1e-5 (wave-zone tolerance sensitivity)
+
+## RESULTS (2026-11-10 evening): convergence with the depth cap, production-like adaptivity (q1.par: tol function 6, AMR 0.2, radii 50..100), ID type 0 (TwoPunctures), np=1 per GPU
+Runs: p12 (cap 12, T=110), p13 (cap 13, T=110), p14 (cap 14, T=80); analyze_res.py (name@T syntax), common sample times, phase offset removed at the first sample above 10% of the reference amplitude.
+Cost (stepping-phase ETS on one GPU; p12/p13 ran with 4 concurrent processes on the node, p14 alone): p12 2812 s (3370 steps), p13 3064 s (6752 steps), p14 1728 s (9792 steps, T=80).
+Waveform error of psi4_22 vs the cap-14 reference, window t<=80 (signal at r arrives at t~r, so only the first ~30 M of signal at r=50 and less beyond):
+| radius | cap 13: max dphase / max dA/A | cap 12: max dphase / max dA/A |
+|---|---|---|
+| r=50 | 0.15 rad / 21% | 1.44 rad / 407% |
+| r=60 | 0.021 rad / 7.9% | 1.31 rad / 387% |
+| r=70 | 3.3e-3 rad / 0.6% | 0.58 rad / 89% |
+Cap 12 vs cap 13 over the full T=110 window: max dphase 2.77 / 1.96 / 1.14 / 0.55 rad at r=50/70/90/100, amplitude errors 370% / 280% / 107% / 68%  => CAP 12 IS NOT USABLE (not converged).
+Observed convergence order (R = diff(12,14)/diff(13,14) = 2^p + 1): p ~ 3 (r=50), ~6 (r=60), ~7.4 (r=70): consistent with the 6th-order scheme where the signal is resolved.
+Implied error of cap 13 ~ diff(13,14) (0.15 / 0.02 / 3e-3 rad at r=50/60/70); implied error of cap 14 ~ diff(13,14)/(2^p-1) ~ 0.018 / 3e-4 / 2e-5 rad.
+Conclusions: (1) cap >= 13 is the minimum for this setup, cap 14 for ~0.02 rad at r=50; (2) a q1 run to T=110 costs ~1-1.5 GPU-hours at cap 13-14 on ONE GPU, i.e. the forward solve is cheap enough for ensemble work
+(far below the q8 depth-17 case); (3) caveats: window <= 80 M dominated by the junk-radiation transient at r=50-70, one configuration, the phase accumulation over the full inspiral and a real error target
+(needs the noise model) are still open; r>=80 not usable in the t<=80 window.
+Batch 3 status: p14 done; cap-12 variants (BSSN_GW_REFINE_WTOL 1e-3 / 1e-5, AMR_FAC 0.4) running on c116-001 (the first launch failed: node c111-022 has a different module tree, the env script aborted at `module load`).
+Infrastructure lessons: (a) launching via `ssh node "nohup ... &"` sometimes loses the job -- use `(setsid nohup ... &)` and verify with ps; (b) a run directory is deleted when a run with the same name starts (batch-2 p13 survived only because the batch-3 launch failed).

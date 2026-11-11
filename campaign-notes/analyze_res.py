@@ -2,13 +2,16 @@
 """Accuracy-vs-cost: compare psi4_22 (phase, amplitude) of resolution/tolerance variants against the finest run.
 usage: analyze_res.py TEND REF_NAME NAME1 NAME2 ...   (dirs ~/Dendro-GR-runs/resstudy/<name>_T<TEND>)"""
 import sys,os,re,numpy as np
-T=sys.argv[1]; ref=sys.argv[2]; names=sys.argv[3:]
+T=sys.argv[1]; ref=sys.argv[2]; names=sys.argv[3:]   # a name may carry its own end time: p13@110
 R=os.path.expanduser("~/Dendro-GR-runs/"+os.environ.get("RESDIR","resstudy"))
 RADII=[int(x) for x in os.environ.get("RIDX","5,3").split(",")]
 RN=os.environ.get("RNAMES","r=25,r=18").split(",")
+def split(n):
+    return (n.split("@")[0],n.split("@")[1]) if "@" in n else (n,T)
 def load(name,ridx):
     import glob
-    f=glob.glob(f"{R}/{name}_T{T}/dat/*_GW_l2_m2.dat")[0]
+    nm,tt=split(name)
+    f=glob.glob(f"{R}/{nm}_T{tt}/dat/*_GW_l2_m2.dat")[0]
     t=[];z=[]
     for l in open(f):
         if l.startswith(("Time","#")) or not l.strip(): continue
@@ -16,7 +19,7 @@ def load(name,ridx):
         t.append(float(p[1])); z.append(complex(float(m[ridx][0]),float(m[ridx][1])))
     return np.array(t),np.array(z)
 def cost(name):
-    log=f"{R}/{name}_T{T}/run.log"; L=re.sub(r"\x1b\[[0-9;]*m","",open(log).read())
+    nm,tt=split(name); log=f"{R}/{nm}_T{tt}/run.log"; L=re.sub(r"\x1b\[[0-9;]*m","",open(log).read())
     steps=len(re.findall(r"Executing step",L)); 
     m=re.findall(r"ETS time \(max\) : ([0-9.]+)",L); 
     last=re.findall(r"Executing step :\s+(\d+)",L)
