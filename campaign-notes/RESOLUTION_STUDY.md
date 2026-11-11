@@ -90,3 +90,10 @@ Decision: production runs at cap 13 (error ~0.007 rad, i.e. ~4x below the 0.03 r
 
 
 ## !! CORRECTION 2026-11-11 08:45 -- see STATE_2026-11-11.md top: the T=110 comparisons above test the junk-radiation transient (shell r=100, retarded time <= 10 M; BHs have not merged: q=1 r=3.6 at T=110), not inspiral phase accuracy. Redo with T=260 and retarded-time windows is running (p1{2,3,4}L_T260).
+
+## REAL inspiral convergence, q=1 (T=260, merger at u~145 at r=50; r_sep=0 after ~t=130-140 in the BH tracker) -- 2026-11-11 10:55
+Comparison on retarded time u=t-r_ex, window u>=60 (junk gone), psi4_22, new binary, CFL 0.25/remesh 50, both BHs at the stated level (analyze_inspiral.py):
+- cap 12: unphysical (BH separation -> 0 before t=100; psi4 off by factors of ~1).
+- cap 13 vs cap 14 (r=50 shell): dphase = -0.60 rad at u=100, **-6.5 rad at the merger peak (u=140)**, -7.2 rad after merger; amplitude errors 85% near u=100 -> cap 13 is NOT adequate: its inspiral is much too fast (numerical dissipation / puncture drift). (r=100 shell gives the same picture.)
+- Therefore the earlier "cap 13: 0.007 rad" statements measured the junk transient only (see CORRECTION in STATE_2026-11-11.md). The production par (q1: levels 15/15) was presumably chosen for this reason. Whether cap 14 is itself converged is unknown: cap 15 and 16 at T=260 are needed (queued: allocation long20h; each cap-15 run is multi-hour on one GPU).
+- p13L crashed at t=238 (post-merger) the moment the mesh exceeded 65535 elements (64730 -> 65717) with "!! invalid argument" (CUDA error printed by check_last_error, device.h:214); the earlier q=4 (15,12) crash at ~70k elements is the same signature. p14L's mesh is at 62.4k elements and growing at t=254. => likely a hard limit at 65535 (a launch dimension in y/z, or a 16-bit index) hit by post-merger meshes; must be found and fixed before any production run through ringdown. Not yet located (grid dims of unzip/zip use y = number of blocks m_zip_grid[1], m2b etc.).
