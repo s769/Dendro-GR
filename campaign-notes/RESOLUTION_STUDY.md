@@ -55,3 +55,9 @@ Conclusions: (1) cap >= 13 is the minimum for this setup, cap 14 for ~0.02 rad a
 (needs the noise model) are still open; r>=80 not usable in the t<=80 window.
 Batch 3 status: p14 done; cap-12 variants (BSSN_GW_REFINE_WTOL 1e-3 / 1e-5, AMR_FAC 0.4) running on c116-001 (the first launch failed: node c111-022 has a different module tree, the env script aborted at `module load`).
 Infrastructure lessons: (a) launching via `ssh node "nohup ... &"` sometimes loses the job -- use `(setsid nohup ... &)` and verify with ps; (b) a run directory is deleted when a run with the same name starts (batch-2 p13 survived only because the batch-3 launch failed).
+
+## Batch 3 (cap 12 variants) + production-ID FD at cap 12 (2026-11-10)
+- g3c12 (GW_REFINE_WTOL 1e-3), g5c12 (1e-5), a4c12 (AMR_FAC 0.4) vs p13 reference: g3/g5 are *identical* to p12 in psi4_22 (final dphase -0.549 rad at r=25): at cap 12 the depth cap, not the tolerance, limits the mesh. AMR_FAC 0.4 only reduces it to -0.43 rad. Cap 12 stays unusable; tolerance knobs are not the lever (~9% cheaper for g3/g5, 2.56e3 s vs 2.81e3 s ETS).
+- Production-ID FD harness (run_fd_tp.sh, TwoPunctures with per-member warm-start solves, cap 12, T=110) works end to end: fid 1195 s wall, 4 concurrent replays ~4750 s wall each.
+- Central-FD plateau (eps 0.001 vs 0.003, |dz|/|z| of psi4_22, r idx 5): 1e-6 (t<35, junk+early inspiral), 7e-5 (t=42), 5e-3 (t=52), 0.14 (t=62), 0.25 at merger. Linear in eps early. At cap 12 the merger happens at t~83 (unconverged), so the late-time plateau failure is not a trustworthy statement about FD itself; rerun at cap 13 (queued job fdtp13).
+- NOTE: run through t<~60 only is smooth; analyze_wave_fd.py's "last 25%" window is post-merger garbage here (use analyze_wave_fd_dgr.py with a pre-merger window or ex-time-resolved table).
