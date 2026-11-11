@@ -94,3 +94,17 @@ Candidates, ordered by (expected payoff x ease):
     => optimizing a SINGLE forward solve is the same lever as optimizing the sensitivities; strong-scaling one run over more GPUs (efficiency 0.56-0.64 at 4 GPUs, earlier
     measurement) trades throughput for time-to-solution; a tangent-linear model would give ~one-run wall time too (decided not needed for now).
  6. Keep: accuracy-vs-cost study (resolution/knobs) because it sets how many blocks are needed at all.
+
+## HIGHER-ORDER DERIVATIVES (user request 2026-11-10: build towards Hessians; RMHMC would need 3rd order) -- design notes
+Cost model for p inferred parameters, each forward member ~ one full solve (independent members; frozen-mesh replay):
+ - FD gradient (central): 2p+1 members.  FD Hessian (central, function values): ~2p^2+1 (p=3: 19; p=9: 163).  FD 3rd derivative: O(p^3) (p=3: ~100; p=9: >1000).
+ - Gauss-Newton / Fisher needs only J (first order).  RMHMC with a Fisher metric needs dG/dtheta = second derivatives of the MODEL (waveform), i.e. the Hessian of a vector output.
+ - Forward-mode tangents: J costs p tangent solves; Hessian costs ~p(p+1)/2 second-order tangents => same O(p^2) as FD (no cost win, but exact: no eps/noise tuning).
+ - Reverse mode (adjoint) wins asymptotically only for a SCALAR objective (gradient ~O(1) solves; Hessian-vector products ~O(1) each => Hessian ~p HVPs), but needs checkpointed trajectories
+   (~1e5 steps), the adjoint of remeshing/grid transfer (frozen mesh => transpose of fixed linear maps), CAHD/SSL/KO/BCs, and adjoint stability of the puncture gauge is unknown.
+ - Exact derivatives of the discrete solver can be generated from the sympy RHS (CodeGen), as started in the tangent-linear stubs (cuda/src/tl_*); second order = differentiate the tangent expressions (expression swell: not measured).
+ - Smoothness prerequisite: frozen mesh + deterministic runs; the first-derivative plateau is clean (4.8e-5, fine, r=25); second derivatives amplify noise ~ roundoff/eps^2, so a plateau test is needed.
+Tasks:
+ - H1 (cheap, soon): second-derivative FD plateau test with p=2 (BH1 mass, BH2 mass): 9-run stencil per eps (center, +-e1, +-e2, 4 corners) at two eps, coarse then fine; report diag/mixed Hessian plateau vs eps.
+ - H2: size the tangent/second-order codegen (count ops of d(RHS)/d(theta) and d2): decide AD vs FD after the user's inference strategy.
+ - H3: keep options open: keep kernels sympy-generated where possible, keep frozen-mesh replay and determinism, FP64.
