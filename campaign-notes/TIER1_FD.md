@@ -139,3 +139,13 @@ Caveats: coarse replays were truncated at t=25.78 (node expiry; analysis used th
 (no effect on the physics). Only one parameter (BH1 mass) and psi4_22 phase/amplitude.
 Performance note: replay cost is dominated by host Mesh reconstruction at each replayed remesh (single rank, large mesh), not by the GPU solver --
 building each recorded mesh once and sharing it across ensemble members would remove most of it.
+
+## IMPORTANT CAVEAT (found 2026-11-10): which initial data did the FD runs use?
+The smoke parameter files (q1.smoke_cons / q1.smoke_hfine) set BSSN_ID_TYPE = 1 = bssn::punctureData (ANALYTIC two-puncture data from the HAD code: explicit in BH mass/position/
+spin/momentum, constraint NOT solved, initial C_HAM ~ 1e-5).  Production (BSSN_GR/pars/q*.par.toml) uses BSSN_ID_TYPE = 0 = TwoPunctures (constraint solved; the solver only RESTORES a
+pre-solved *_tpid_sol.bin via TPRestore, with no mass/parameter consistency check).  Consequences:
+ * the GPU-vs-CPU physics validation and the smoke FD tables are valid for ID type 1 (mass enters explicitly); the TwoPunctures file is not read at all (a "reuse the fiducial TP file" test changed nothing);
+ * FD sensitivities for PRODUCTION data must solve TwoPunctures PER MEMBER (reusing the fiducial u leaves a constraint residual |F|~2.3e-5 at +0.001 mass, see run_tp_warm.sh; the correct solution differs from
+   the fiducial by up to 2.6e-5 in u, 1.5e-5 in v) -- warm-started `tpid` solves (~150 s at 36 threads) are cheap relative to a member;
+ * TP Newton tolerance enters FD noise: first derivatives ~tol/eps (1e-10/1e-3 = 1e-7 OK), second derivatives ~tol/eps^2 (1e-4): use the production tolerances (TPID_NEWTON_TOL 1.6e-14, ADM_TOL 3e-16).
+=> The production-ID FD (per-member TP solves) is run in fdtp_c12 (run_fd_tp.sh); the smoke-ID FD plateau (4.8e-5) is NOT yet confirmed for production data.
