@@ -123,3 +123,13 @@ Model h(theta) (waveform), log L = -1/2 |d - h|^2_n. Fisher metric G = J^T C^-1 
 ## !! CPU-pinning bug in single-rank launches (found 2026-11-11 00:45)
 `mpirun -np 1 ...` (Open MPI/PRRTE default --bind-to core) pinned each solver to ONE core; with 4 concurrent solvers per node they all landed on CPU 0 (Cpus_allowed_list: 0, ~25% CPU each; OMP_NUM_THREADS=8 threads time-sliced on one core). Fix: `mpirun -np 1 --bind-to none` (now in all run_*.sh using -np 1; solver then runs at ~630% CPU).
 Consequences: (1) every *wall-time* number from concurrent single-rank runs (fiducial cap 13 = 5916 s, cap 12 replays 4750 s, CFL/rmf tests) is inflated by host-side (mesh/remesh/OMP) serialization; GPU-only microbenchmarks and per-kernel timings are unaffected. (2) The "wall time is dominated by remesh, not steps" conclusion drawn from the CFL/rmf tests above is NOT established -- the remesh work was running on one shared core. Accuracy results (phase/amplitude errors) are unaffected. Redo timing with proper binding before choosing step-count knobs. (3) Earlier thread-tuning conclusions ("36 OMP threads good") may also have been measured under pinning; re-check.
+
+## Step-count knobs REDONE at cap 13 with correct binding (2026-11-11); supersedes the cap-12 pinned results above
+Reference cap 14 (p14u). psi4_22 r=25, t in 20..110. ETS = stepping wall on one GPU (3 concurrent runs/node).
+| config | ETS [s] | max|dphase| [rad] | max|dA/A| |
+| CFL 0.25, remesh 50 (baseline p13u) | 784 | 0.0073 | 0.0063 |
+| CFL 0.35, remesh 36 steps | 598 | 0.038 | 0.011 |
+| CFL 0.5, remesh 25 steps | 495 (-37%) | 0.0029 | 0.0033 |
+| CFL 0.25, remesh 100 | 680 (-13%) | 0.0072 | 0.0062 |
+- CFL 0.5 stable through merger+ringdown and no less accurate than baseline; wall time now scales with steps (the pinned runs hid this). CFL 0.35 is a worse outlier (0.038 rad): shows adaptation/mesh-timing scatter of a few 1e-2 rad between nominally equivalent configs -- must be quantified before trusting any step-count knob (more samples: CFL 0.4/0.6/0.7 running).
+- Remesh interval 100 steps at cap 13 costs nothing in accuracy (unlike cap 12) and saves 13%.
