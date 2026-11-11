@@ -109,7 +109,7 @@ Tasks:
  - H2: size the tangent/second-order codegen (count ops of d(RHS)/d(theta) and d2): decide AD vs FD after the user's inference strategy.
  - H3: keep options open: keep kernels sympy-generated where possible, keep frozen-mesh replay and determinism, FP64.
 
-## Step-count knob tests (2026-11-10, cap 12, q1 production adaptivity, T=70; 3 runs concurrent on one node)
+## Step-count knob tests (2026-11-10, cap 12  [JUNK WINDOW: T<=110], q1 production adaptivity, T=70; 3 runs concurrent on one node)
 - CFL 0.25 / 0.35 / 0.5 (remesh interval scaled to constant time): ETS 1578 / 1463 / 1336 s -> only -7% / -15% despite 2x fewer steps, so wall time is NOT dominated by step count (remesh/mesh rebuild + extraction per remesh dominate, same count of remeshes per unit time). Waveform vs CFL0.25: max|dphase| 0.38 / 0.30 rad, max|dA/A| 0.42 / 0.44 at r=25 -- large, but cap 12 is unconverged and sensitive; no evidence that CFL is a free win. Verdict: do not raise CFL; next lever is remesh cost/interval (test run_rmf.sh: interval 50/100/200).
 - Remesh interval 50/100/200 (CFL 0.25, cap 12, T=70): ETS 1444 / 1331 / 1259 s (-8% / -13%). Error vs cap-13 reference (psi4_22 r=25, t in 20..70): max|dphase| 0.29 / 0.82 / 0.81 rad -> intervals >50 make phase error ~3x worse at cap 12; reject. CFL 0.35/0.5 vs p13: 0.20/0.16 rad (i.e. within the cap-12 scatter, 0.29 for the baseline). Conclusion: remesh interval stays 50; CFL not worth raising on this evidence (<=15% gain); a proper test needs cap 13 (revisit only after the FD/accuracy decisions). Wall time is dominated by per-remesh/mesh work, so the real lever is cheaper remeshing (device grid transfer, avoid no-op remeshes), not fewer steps.
 
@@ -124,7 +124,7 @@ Model h(theta) (waveform), log L = -1/2 |d - h|^2_n. Fisher metric G = J^T C^-1 
 `mpirun -np 1 ...` (Open MPI/PRRTE default --bind-to core) pinned each solver to ONE core; with 4 concurrent solvers per node they all landed on CPU 0 (Cpus_allowed_list: 0, ~25% CPU each; OMP_NUM_THREADS=8 threads time-sliced on one core). Fix: `mpirun -np 1 --bind-to none` (now in all run_*.sh using -np 1; solver then runs at ~630% CPU).
 Consequences: (1) every *wall-time* number from concurrent single-rank runs (fiducial cap 13 = 5916 s, cap 12 replays 4750 s, CFL/rmf tests) is inflated by host-side (mesh/remesh/OMP) serialization; GPU-only microbenchmarks and per-kernel timings are unaffected. (2) The "wall time is dominated by remesh, not steps" conclusion drawn from the CFL/rmf tests above is NOT established -- the remesh work was running on one shared core. Accuracy results (phase/amplitude errors) are unaffected. Redo timing with proper binding before choosing step-count knobs. (3) Earlier thread-tuning conclusions ("36 OMP threads good") may also have been measured under pinning; re-check.
 
-## Step-count knobs REDONE at cap 13 with correct binding (2026-11-11); supersedes the cap-12 pinned results above
+## Step-count knobs REDONE at cap 13  [JUNK WINDOW: T<=110] with correct binding (2026-11-11); supersedes the cap-12 pinned results above
 Reference cap 14 (p14u). psi4_22 r=25, t in 20..110. ETS = stepping wall on one GPU (3 concurrent runs/node).
 | config | ETS [s] | max|dphase| [rad] | max|dA/A| |
 | CFL 0.25, remesh 50 (baseline p13u) | 784 | 0.0073 | 0.0063 |
@@ -164,17 +164,17 @@ Per-remesh phases (cap 13, DENDRO_TIME_REMESH=1): balance+partition 0.2-0.26 s, 
 Findings: (1) **the `.cu` translation units were compiled WITHOUT OpenMP** (CMAKE_CUDA_FLAGS lacked `-Xcompiler -fopenmp`), so every `#pragma omp` in the dendrolib headers instantiated from CUDA code (e.g. intergrid transfer) was inert. Added `-Xcompiler -fopenmp` to the build (`cmake -DCMAKE_CUDA_FLAGS='-I... -Xcompiler -fopenmp'`); with the fast path disabled results are identical to the old binary (2e-17) and timing unchanged. (2) New single-rank INJECTION fast path in `Mesh::interGridTransfer` parallel over variables with per-thread scratch (must use the thread-safe `getElementNodalValues(..., isDGVec, im1, im2)` overload: the first attempt shared the RefElement scratch and corrupted the mesh -- 7176 -> 48105 elements at the 2nd remesh). Fixed version: total intergrid transfer 9.5 s -> 2.35 s over the 20 remeshes of the T=14 test (4x), waveform identical to the old binary at 2e-17, ETS 90.5 -> 86.9 s (-4%; ~ -7% expected over a full 135-remesh run). DENDRO_IGT_OMP=0 disables; DENDRO_PINNED_POOL=0 disables the pool.
 Remaining per-remesh host cost (balance+partition, Mesh ctor, SendRecvCompute ~0.4-0.9 s) is the next target; the Mesh ctor/balance are Dendro-internal octree code.
 
-## Full-length validation of the optimized binary (pinned pool + OpenMP intergrid transfer), cap 13, T=110 -- 2026-11-11
+## Full-length validation of the optimized binary  [JUNK WINDOW: T<=110] (pinned pool + OpenMP intergrid transfer), cap 13, T=110 -- 2026-11-11
 | config | ETS [s] | vs cap-14 reference max|dphase| / max|dz|/max|z| |
 | CFL 0.25, remesh 50, old binary (p13u) | 784 | 0.0073 / 0.0049 |
 | CFL 0.25, remesh 50, new binary | 634 (-19%) | 0.0073 / 0.0049 (waveform identical to p13u: max|dz| 1e-16 at |z|~3e-5) |
 | CFL 0.4, remesh 80, new binary | 408 (-48%) | 0.0032 / 0.0031 |
 => one cap-13 q1 forward solve to T=110 is ~7 min of GPU stepping (down from 13 min), 5-6 min with the replay-based FD members. Software-only changes are bit-for-bit (roundoff) neutral; the CFL/remesh change is a measured, accuracy-neutral (q1) schedule change that still needs the q != 1 inspiral check before becoming a default.
 
-## q=2 check of the CFL 0.4 / remesh 80 schedule (cap 13, T=110; run_q_cfl.sh) -- 2026-11-11
+## q=2 check of the CFL 0.4  [JUNK WINDOW: T<=110] / remesh 80 schedule (cap 13, T=110; run_q_cfl.sh) -- 2026-11-11
 ETS 1087 s (CFL 0.25, rm50) -> 690 s (CFL 0.4, rm80), -37%; but the two waveforms differ by max|dphase| 0.026 rad, max|dz|/max|z| 0.025 (r=25 shell, |z|>10% of max; q=2 merger at t~102) -- 3x-8x larger than at q=1 (0.003). Cap 13 is itself less converged for q=2 (smaller BH), so this difference may just be cap-13 discretization noise, or a genuine schedule effect: NOT validated. Policy: keep CFL 0.25 / remesh 50 as the default for every q != 1 until a per-q convergence run (cap 14 reference, below) shows the schedule change is below the cap-13 error. (q=1: validated, 0.0032 rad.)
 
-## RESOLUTION of the schedule question (2026-11-11): CFL must stay 0.25; remesh interval 80-100 is free
+## RESOLUTION of the schedule question  [JUNK WINDOW: T<=110] (2026-11-11): CFL must stay 0.25; remesh interval 80-100 is free
 Same-resolution comparisons against the baseline (CFL 0.25, remesh 50), psi4_22 r=25 shell, |z|>10% of max, T=110:
 | case | change | max|dphase| | max|dz|/max|z| | ETS change |
 | q2 cap 13 | remesh 80 only (CFL 0.25) | 0.0001 | 0.0001 | -(~10%) |
