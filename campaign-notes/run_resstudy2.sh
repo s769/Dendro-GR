@@ -12,7 +12,7 @@ if [ ! -f $TPD/tp_q001_tpid_sol.bin ]; then
 fi
 [ -f $TPD/tp_q001_tpid_sol.bin ] || { echo "TPID solve failed (see $TPD/tpid.log)"; exit 1; }
 for spec in $1; do
-  IFS=: read name cap tol gpu <<< "$spec"
+  IFS=: read name cap tol gpu extra <<< "$spec"      # extra = "KEY=VAL;KEY=VAL" extra par overrides (optional)
   gwf=$(( 8 * (1 << (cap - 11)) ))        # constant sample interval dT = 0.5208 M for every cap
   d=$OUT/${name}_T${TEND}; rm -rf $d; mkdir -p $d/{aeh,bah,cp,dat,vtu}; cp $HOME/Dendro-GR/BSSN_GR/pars/q1.par.toml $d/local.par.toml
   ln -sfn $TPD/tp_q001_tpid_sol.bin $d/tp_q001_tpid_sol.bin
@@ -28,7 +28,7 @@ def sub(k,v):
         t=(t[:m.start()]+ins+t[m.start():]) if m else t+"\n"+ins
 for k,v in [("BSSN_RESTORE_SOLVER","0"),("BSSN_MAXDEPTH","$cap"),("BSSN_BH1_MAX_LEV","$cap"),("BSSN_BH2_MAX_LEV","$cap"),
             ("BSSN_WAVELET_TOL","$tol"),("BSSN_RK_TIME_END","$TEND.0"),("BSSN_GW_EXTRACT_FREQ","$gwf"),
-            ("BSSN_IO_OUTPUT_FREQ","0"),("BSSN_CHECKPT_FREQ","0")]: sub(k,v)
+            ("BSSN_IO_OUTPUT_FREQ","0"),("BSSN_CHECKPT_FREQ","0")]+[tuple(x.split("=",1)) for x in "$extra".split(";") if x]: sub(k,v)
 p.write_text(t)
 PY
   ( cd $d; s=$(date +%s)

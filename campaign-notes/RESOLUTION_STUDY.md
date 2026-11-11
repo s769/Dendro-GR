@@ -18,5 +18,22 @@ wave zone and the outgoing junk shell at 1e-5, so the mesh grows steadily (6.7k 
 50-140 s: that is the "mesh blow-up at T>27" seen earlier.  Cost/accuracy conclusions must come from production-like adaptivity (batch 2).
 The FD smoothness conclusions (TIER1_FD.md) are unaffected (they are about the derivative), but they were taken with the smoke adaptivity.
 
-## Batch 2: production-like (q1.par.toml adaptivity, RESTORE off, caps 11/12/13 and cap-12 tol 1e-4), T=110, radii 50..100 -- IN PROGRESS
-(run_resstudy2.sh; sample interval 0.5208 M for every cap)
+## Batch 2: production-like adaptivity (q1.par.toml: tol function 6, RESTORE off, GW radii 50..100), T=110, np=1 per GPU
+(run_resstudy2.sh; one shared TwoPunctures solve (49 s, grid 65x78x10); sample interval 0.5208 M for every cap; CAHD 0.06, SSL, BH tracking on)
+| run | cap | notes | result |
+|---|---|---|---|
+| p11 | 11 | tol 1e-5 | FAILED to be useful: mesh grew 26k -> 68.6k active elements (max level only 9), remesh 236 s, stalled at t=45; killed |
+| p12 | 12 | tol 1e-5 | complete: stepping 2812 s for 3370 steps (T=110), mesh ~9.8k elements throughout |
+| p12t4 | 12 | BSSN_WAVELET_TOL 1e-4 | complete: 2903 s; waveform identical to p12 to 2.6e-11 rad / 2.4e-11 amplitude |
+| p13 | 13 | tol 1e-5 | reached t~80 when the node expired (mesh ~10.4k elements, ~96 steps/min); rerun in batch 3 |
+Findings:
+* A depth cap that is too low for the adaptivity (cap 11) breaks the refinement strategy (broad refinement at coarse levels, cost explodes); cap >= 12 gives ~10k-element meshes.
+* Tolerance function 6 (grUtils.cpp): BSSN_WAVELET_TOL only applies for r <= 8 (near the orbit); r in (8, R_min=50) log-ramps to BSSN_GW_REFINE_WTOL (1e-4);
+  plateau at GW_REFINE_WTOL out to R_max; beyond that and for t < t_lim=max(r,(r+120)/sqrt2) the tolerance is BSSN_WAVELET_TOL_MAX (1e-3, "WAMR disabled").
+  => BSSN_WAVELET_TOL is NOT an effective accuracy/cost knob under function 6 (1e-5 -> 1e-4 changes the waveform by 1e-11). Real knobs: depth cap
+  (BH-region resolution), BSSN_GW_REFINE_WTOL (wave zone), AMR_FAC, BH AMR radii/ratio.
+* Cost at cap 12: ~3370 steps for T=110 = 2812 s on ONE GPU (np=1) => a q1 inspiral to ~190 M is O(1.5-2 GPU-hours) at this level IF its accuracy suffices (unknown: needs the cap-13/14 comparison).
+* The partial cap-13 series (t<=74) overlaps the arrival of the r=70/100 signal only marginally, so no cross-resolution phase number yet.
+
+## Batch 3 (queued: whichever of the 5h/2h allocations starts first; watch_resstudy3.sh): p13 to T=110, p14 to T=80 (convergence rate on the shared window),
+## g3c12 / g5c12 = cap 12 with BSSN_GW_REFINE_WTOL 1e-3 / 1e-5 (wave-zone tolerance sensitivity)

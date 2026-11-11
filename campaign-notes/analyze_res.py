@@ -3,9 +3,12 @@
 usage: analyze_res.py TEND REF_NAME NAME1 NAME2 ...   (dirs ~/Dendro-GR-runs/resstudy/<name>_T<TEND>)"""
 import sys,os,re,numpy as np
 T=sys.argv[1]; ref=sys.argv[2]; names=sys.argv[3:]
-R=os.path.expanduser("~/Dendro-GR-runs/resstudy")
+R=os.path.expanduser("~/Dendro-GR-runs/"+os.environ.get("RESDIR","resstudy"))
+RADII=[int(x) for x in os.environ.get("RIDX","5,3").split(",")]
+RN=os.environ.get("RNAMES","r=25,r=18").split(",")
 def load(name,ridx):
-    f=f"{R}/{name}_T{T}/dat/bssn_profile_GW_l2_m2.dat"
+    import glob
+    f=glob.glob(f"{R}/{name}_T{T}/dat/*_GW_l2_m2.dat")[0]
     t=[];z=[]
     for l in open(f):
         if l.startswith(("Time","#")) or not l.strip(): continue
@@ -20,7 +23,7 @@ def cost(name):
     return (float(m[-1]) if m else float('nan')), (int(last[-1]) if last else 0)
 print("cost (stepping-phase ETS wall, last step):")
 for n in [ref]+names: print("  %-8s ETS=%8.1f s  last step %s"%(n,*cost(n)))
-for ridx,rname in ((5,"r=25"),(3,"r=18")):
+for ridx,rname in zip(RADII,RN):
     tr,zr=load(ref,ridx); ph_r=np.unwrap(np.angle(zr)); A_r=np.abs(zr)
     print(f"\n=== {rname}: error vs reference '{ref}' on common times ===")
     res={}
