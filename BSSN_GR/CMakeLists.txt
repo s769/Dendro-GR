@@ -388,3 +388,5 @@ endif()
 #
 bssn_add_executable(bssnTaylorEnforce taylor/bssn_taylor_enforce.cpp)
 target_include_directories(bssnTaylorEnforce PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/taylor ${CMAKE_CURRENT_SOURCE_DIR}/src)
+bssn_add_executable(bssnTaylorStep taylor/bssn_taylor_step.cpp)
+target_include_directories(bssnTaylorStep PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/taylor ${CMAKE_CURRENT_SOURCE_DIR}/src)
