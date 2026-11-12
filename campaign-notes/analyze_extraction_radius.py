@@ -5,14 +5,19 @@ usage: analyze_extraction_radius.py RUN [--u0 60] [--u1 125]"""
 import sys, argparse, numpy as np
 sys.path.insert(0, '.')
 import analyze_mismatch as am
-ap = argparse.ArgumentParser(); ap.add_argument('run'); ap.add_argument('--u0', type=float, default=60); ap.add_argument('--u1', type=float, default=125); ap.add_argument('--dt', type=float, default=0.5)
+ap = argparse.ArgumentParser(); ap.add_argument('run'); ap.add_argument('--u0', type=float, default=60); ap.add_argument('--u1', type=float, default=125); ap.add_argument('--dt', type=float, default=0.5); ap.add_argument('--areal', action='store_true', help='use areal radius r(1+M/2r)^2 and tortoise retarded time u=t-r_*, amplitude scale r_areal (M=1)')
 a = ap.parse_args()
 data = [am.load_psi4(a.run, i) for i in range(6)]
+R = np.array(am.RAD, float)
+if a.areal:
+    M = 1.0; ra = R * (1 + M / (2 * R)) ** 2; rs = ra + 2 * M * np.log(ra / (2 * M) - 1)
+    data = [(u + R[i] - rs[i], z) for i, (u, z) in enumerate(data)]
+    R = ra
+    print('AREAL radius + tortoise retarded time (M=1): r_areal =', np.round(ra, 3))
 u1 = min(a.u1, *[d[0][-1] for d in data]); n = int((u1 - a.u0) / a.dt); ug = a.u0 + a.dt * np.arange(n)
 psi = [am.resample(u, z, ug) for u, z in data]
 ph = np.unwrap(np.angle(psi[0])); f0 = 0.8 * abs((ph[10] - ph[0]) / (10 * a.dt)) / (2 * np.pi)
 w = am.tukey(n); h = [am.ffi(p, a.dt, f0) * w for p in psi]
-R = np.array(am.RAD, float)
 print(f"run {a.run}: window u in [{a.u0:.0f},{u1:.0f}] ({n} samples); amplitude scale check |psi4| at u=80: " + ", ".join(f"r={int(r)}: {abs(p[int((80-a.u0)/a.dt)]):.3e}" for r, p in zip(R, psi)))
 # r*psi4 convention: test whether |psi4| ~ 1/r
 print("   |psi4|*r at u=80: " + ", ".join(f"{abs(p[int((80-a.u0)/a.dt)])*r:.4e}" for r, p in zip(R, psi)))
