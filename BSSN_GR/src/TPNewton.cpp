@@ -11,6 +11,7 @@
 #include "TPUtilities.h"
 #include "TwoPunctures.h"
 
+static const CCTK_REAL *g_bicg_rhs = NULL; /* when set, bicgstab solves J dv = *g_bicg_rhs instead of J dv = F(v) */
 static int bicgstab(int const nvar, int const n1, int const n2, int const n3,
                     derivs v, derivs dv, int const output, int const itmax,
                     CCTK_REAL const tol, CCTK_REAL *const normres);
@@ -339,6 +340,7 @@ static int bicgstab(int const nvar, int const n1, int const n2, int const n3,
     ncols = ivector(0, ntotal - 1);
 
     F_of_v(nvar, n1, n2, n3, v, F, u);
+    if (g_bicg_rhs) for (int jj = 0; jj < ntotal; jj++) F[jj] = g_bicg_rhs[jj]; /* tangent solves: J dv = rhs (campaign B2) */
     SetMatrix_JFD(nvar, n1, n2, n3, u, ncols, cols, JFD);
 
     /* temporary storage */
@@ -529,3 +531,15 @@ void Newton(int const nvar, int const n1, int const n2, int const n3, derivs v,
 }
 
 /* -------------------------------------------------------------------*/
+
+/* Public: solve J(v) dv = rhs with the production BiCGStab + FD-preconditioner (the Newton linear solver) for an arbitrary
+   right-hand side; used for parameter tangents (implicit function theorem). Returns the BiCGStab status. */
+int TPLinearSolve(int nvar, int n1, int n2, int n3, derivs v, const CCTK_REAL *rhs, derivs dv, int verbose, int itmax,
+                  CCTK_REAL tol, CCTK_REAL *normres) {
+    g_bicg_rhs = rhs;
+    int ntotal = n1 * n2 * n3 * nvar;
+    for (int j = 0; j < ntotal; j++) dv.d0[j] = 0;
+    int st = bicgstab(nvar, n1, n2, n3, v, dv, verbose, itmax, tol, normres);
+    g_bicg_rhs = NULL;
+    return st;
+}

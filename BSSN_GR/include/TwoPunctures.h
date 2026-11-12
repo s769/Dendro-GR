@@ -106,6 +106,9 @@ void TestRelax(int nvar, int n1, int n2, int n3, derivs v, CCTK_REAL *dv);
 void Newton(int nvar, int n1, int n2, int n3, derivs v, CCTK_REAL tol,
             int itmax);
 
+int TPLinearSolve(int nvar, int n1, int n2, int n3, derivs v, const CCTK_REAL *rhs, derivs dv, int verbose, int itmax,
+                  CCTK_REAL tol, CCTK_REAL *normres);
+
 /**@brief write the tp solve to a file*/
 void TPStore(double *mp, double *mm, double *mp_adm, double *mm_adm, double *E,
              double *J1, double *J2, double *J3, const char *fprefix);
