@@ -13,6 +13,7 @@
 #include <map>
 #include <vector>
 #include <algorithm>
+#include <omp.h>
 
 #include "derivs.h"
 #include "parameters.h"
@@ -74,6 +75,43 @@ static void setup_coeff(int k, const double* const* f, double hx, double hy, dou
 struct Setup {
     double pmin[3], pmax[3], h;
 };
+
+
+// ---- timing of the pointwise Taylor algebra for truncation order K (cost model input for B4): ns per grid point
+template <int K>
+static double time_pointwise(int reps, const double pmin[3], double h, double* sink) {
+    typedef Tay<K> T;
+    const double dx_i = h, dt = BSSN_RK45_TIME_STEP_SIZE, h_ssl = BSSN_SSL_H, sig_ssl = BSSN_SSL_SIGMA, t = 0.7;
+    const unsigned lambda[4] = {BSSN_LAMBDA[0], BSSN_LAMBDA[1], BSSN_LAMBDA[2], BSSN_LAMBDA[3]};
+    const double lambda_f[2] = {BSSN_LAMBDA_F[0], BSSN_LAMBDA_F[1]};
+    const double bh1x = 0, bh1y = 0, bh1z = 0, bh2x = 0, bh2y = 0, bh2z = 0; (void)bh1x; (void)bh1y; (void)bh1z; (void)bh2x; (void)bh2y; (void)bh2z;
+    (void)dt; (void)dx_i; (void)h_ssl; (void)sig_ssl; (void)t; (void)lambda; (void)lambda_f;
+    double acc = 0; long npts = 0;
+    double t0 = omp_get_wtime();
+    for (int rep = 0; rep < reps; rep++)
+    for (int k = PWD; k < N - PWD; k++) for (int j = PWD; j < N - PWD; j++) for (int i = PWD; i < N - PWD; i++) {
+        const int pp = i + N * (j + N * k);
+        const double x = pmin[0] + i * h, y = pmin[1] + j * h, z = pmin[2] + k * h;
+        const double r_coord = std::sqrt(x * x + y * y + z * z);
+#include "eta_RIT.inc.cpp"
+#define LD(n, v) T n##_T; for (int q = 0; q <= K; q++) n##_T.c[q] = n##_c[q][pp];
+        TAYLOR_FIELD_NAMES(LD)
+#undef LD
+#define LD(n) T n##_T; for (int q = 0; q <= K; q++) n##_T.c[q] = n##_c[q][pp];
+        TAYLOR_DERIV_NAMES(LD)
+#undef LD
+#define OD(n, v, f) T OUT_##n;
+        TAYLOR_OUT_NAMES(OD)
+#undef OD
+#include "taylor_point.inc"
+#define ACC(n, v, f) acc += OUT_##n.c[K];
+        TAYLOR_OUT_NAMES(ACC)
+#undef ACC
+        npts++;
+    }
+    double dtw = omp_get_wtime() - t0; *sink += acc;
+    return dtw / npts * 1e9;
+}
 
 int main(int argc, char** argv) {
     const double amp0 = argc > 1 ? atof(argv[1]) : 0.05, ampj = argc > 2 ? atof(argv[2]) : 0.02;
@@ -193,5 +231,13 @@ int main(int argc, char** argv) {
     printf("(C) max|R_j| per order: ");
     for (int q = 0; q <= KMAX; q++) { double m = 0; for (int v = 0; v < NV; v++) for (int p = 0; p < NP; p++) m = std::max(m, std::fabs(Rjet[q][v][p])); printf(" R_%d=%.3e", q, m); }
     printf("\n");
+    if (getenv("TAYLOR_TIMING")) {
+        double sink = 0; const int reps = 300;
+        double t0 = omp_get_wtime(); for (int r = 0; r < 20; r++) { std::vector<double> o[NV]; prod_rhs(0.0, o); } double tp = (omp_get_wtime() - t0) / 20;
+        printf("(T) timing, single thread, 13^3 block (%d interior points): production bssnrhs() full RHS incl. stencils = %.3f ms (%.0f ns/interior point)\n", (N - 2 * PWD) * (N - 2 * PWD) * (N - 2 * PWD), tp * 1e3, tp * 1e9 / ((N - 2 * PWD) * (N - 2 * PWD) * (N - 2 * PWD)));
+        double a0 = time_pointwise<0>(reps, pmin, h, &sink), a1 = time_pointwise<1>(reps, pmin, h, &sink), a2 = time_pointwise<2>(reps, pmin, h, &sink), a3 = time_pointwise<3>(reps, pmin, h, &sink);
+        printf("    pointwise algebra only, ns per point: K=0 %.0f | K=1 %.0f (x%.2f) | K=2 %.0f (x%.2f) | K=3 %.0f (x%.2f)   [sink %g]\n", a0, a1, a1 / a0, a2, a2 / a0, a3, a3 / a0, sink);
+        printf("    members per solve: K=1 jet (3 coefficients incl. fiducial? no: one univariate jet) -> cost per jet-coefficient: K=1 %.2f, K=2 %.2f, K=3 %.2f of the K=0 cost\n", a1 / a0 / 2, a2 / a0 / 3, a3 / a0 / 4);
+    }
     return 0;
 }
